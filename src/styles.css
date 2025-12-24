@@ -1,0 +1,25 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;padding:12px;background:#fff;color:#111}
+
+/* Popup sizing and layout */
+.popup{
+  margin:0;
+  padding:12px;
+  box-sizing:border-box;
+  min-width:320px; /* make popup wider */
+  width:360px;
+  max-width:480px;
+}
+
+.popup,h2{margin:0 0 8px}
+.popup,h3{margin: 0 0 8px;}
+button{display:inline-block;margin-right:8px}
+.options label{display:block;margin-bottom:8px}
+
+/* Responsive: allow narrower windows on very small screens */
+@media (max-width:420px){
+  .popup{ width: calc(100vw - 24px); min-width: 240px; }
+}

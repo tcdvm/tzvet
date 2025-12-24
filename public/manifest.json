@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "TZVet Example Extension",
+  "version": "0.1.0",
+  "description": "A minimal Chrome Extension template (manifest v3).",
+  "icons": {
+    "16": "icons/icon16.svg",
+    "48": "icons/icon48.svg",
+    "128": "icons/icon128.svg"
+  },
+  "action": {
+    "default_popup": "popup/index.html",
+    "default_icon": "icons/icon48.svg"
+  },
+  "background": {
+    "service_worker": "service-worker.js"
+  },
+  "permissions": ["storage", "scripting", "activeTab"],
+  "host_permissions": ["<all_urls>"],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content-script.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "options_page": "options/options.html"
+}
