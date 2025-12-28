@@ -40,6 +40,36 @@ document.getElementById('highlight').addEventListener('click', async () => {
 const normalizeCheckbox = document.getElementById('normalize');
 const status = document.getElementById('status');
 
+const extractBtn = document.getElementById('extractLabTrends');
+if (extractBtn) {
+  extractBtn.addEventListener('click', async () => {
+    status.textContent = 'Extracting lab trends...';
+    extractBtn.disabled = true;
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.id) {
+        status.textContent = 'No active tab';
+        return;
+      }
+      const result = await sendMessageWithInjectRetry(tab.id, { type: 'EXTRACT_LAB_TRENDS' });
+      if (!result.ok) {
+        status.textContent = 'No content script on active tab';
+        console.warn('sendMessage failed after retry:', result.error);
+        return;
+      }
+      const payload = result.res;
+      if (!payload || payload.ok === false) {
+        status.textContent = payload?.error || 'Extraction failed';
+        return;
+      }
+      status.textContent = `Lab trends found: ${payload.count}`;
+      console.log('Lab trends payload', payload);
+    } finally {
+      extractBtn.disabled = false;
+    }
+  });
+}
+
 // load saved settings
 chrome.storage.sync.get({ normalizeSpecies: false, headerHidden: false, qtipPlaceholder: false }, (items) => {
   normalizeCheckbox.checked = items.normalizeSpecies;

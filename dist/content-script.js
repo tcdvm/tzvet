@@ -1,28 +1,51 @@
-// content-script.js — runs on matched pages
-console.log('TZVet content script loaded on', location.href);
-
-// Example: highlight all paragraphs
-for (const p of document.querySelectorAll('p')) {
-  p.style.outline = '1px dashed rgba(0, 150, 136, 0.4)';
+function getRowTextWithoutNestedTables(row) {
+  const clone = row.cloneNode(true);
+  clone.querySelectorAll('table').forEach((t) => t.remove());
+  return clone.innerText.trim();
 }
 
-// Listen to messages from extension
-chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  console.debug('[cs] onMessage received', msg);
-  if (msg?.type === 'HIGHLIGHT') {
-    console.debug('[cs] HIGHLIGHT', msg);
-    document.body.style.backgroundColor = msg.color || 'rgba(255,255,0,0.15)';
-    sendResponse({ status: 'done' });
-  } else if (msg?.type === 'NORMALIZE_TOGGLE') {
-    console.debug('[cs] NORMALIZE_TOGGLE', msg.enabled);
-    setNormalization(!!msg.enabled);
-    sendResponse({ status: 'ok' });
-  } else if (msg?.type === 'NORMALIZE_NOW') {
-    console.debug('[cs] NORMALIZE_NOW');
-    applyNormalizationToDocument();
-    sendResponse({ status: 'ran' });
-  }
-});
+function tableToMatrix(table) {
+  return Array.from(table.querySelectorAll('tr')).map((tr) =>
+    Array.from(tr.querySelectorAll('th,td')).map((cell) => cell.innerText.trim())
+  );
+}
+
+function extractLabTrends() {
+  const container = document.querySelector('.rtabdetails.clinical.active');
+  if (!container) return { ok: false, error: 'No active clinical tab found' };
+
+  const notes = container.querySelector('div[id^="medicalnotesNotes"]');
+  if (!notes) return { ok: false, error: 'No medical notes container found' };
+
+  const table = notes.querySelector('table');
+  if (!table) return { ok: false, error: 'No notes table found' };
+
+  const rows = [];
+  const trs = table.querySelectorAll('tr');
+  trs.forEach((tr, idx) => {
+    const nested = tr.querySelector('table');
+    if (!nested) return;
+    rows.push({
+      rowIndex: idx,
+      rowText: getRowTextWithoutNestedTables(tr),
+      nestedTableText: nested.innerText.trim(),
+      nestedTableMatrix: tableToMatrix(nested)
+    });
+  });
+
+  return {
+    ok: true,
+    notesContainerId: notes.id || null,
+    count: rows.length,
+    rows
+  };
+}
+
+// content-script.js - runs on matched pages
+
+console.log('TZVet content script loaded on', location.href);
+const debug = (...args) => { console.log(...args); };
+const debugLog = (...args) => { console.log(...args); };
 
 // ---- Normalize species labels ----
 const NORMALIZE_KEY = 'normalizeSpecies';
@@ -33,6 +56,11 @@ const normalizePatterns = [
   { re: /\bCanine\s*\(\s*Dog\s*\)/gi, repl: 'Canine' },
   { re: /\bFeline\s*\(\s*Cat\s*\)/gi, repl: 'Feline' }
 ];
+
+function isNormalizeActive() {
+  const el = document.querySelector('div.rtabdetails.dashboard');
+  return !!(el && el.classList && el.classList.contains('active'));
+}
 
 function shouldSkipNode(node) {
   if (!node || !node.parentElement) return true;
@@ -54,7 +82,7 @@ function replaceInTextNode(textNode) {
   }
   if (changed) {
     textNode.nodeValue = text;
-    console.debug('[normalize] text-node changed', textNode.parentElement, text);
+    debug('[normalize] text-node changed', textNode.parentElement, text);
   }
 }
 
@@ -67,11 +95,12 @@ function normalizeElementText(el) {
   }
   if (after !== before) {
     el.textContent = after;
-    console.log('[normalize] element updated', el, '->', after);
+    debugLog('[normalize] element updated', el, '->', after);
   }
 }
 
 function applyNormalizationToDocument(root = document.body) {
+  if (!isNormalizeActive()) return;
   if (!root) return;
 
   // Fast-path: normalize known appointment description elements as a whole
@@ -96,12 +125,13 @@ function applyNormalizationToDocument(root = document.body) {
 function observeForChanges() {
   if (normalizeObserver) return;
   normalizeObserver = new MutationObserver((mutations) => {
-    console.debug('[normalize] mutations received', mutations.length);
+    if (!isNormalizeActive()) return;
+    debug('[normalize] mutations received', mutations.length);
     for (const m of mutations) {
-      console.debug('[normalize] mutation', m.type);
+      debug('[normalize] mutation', m.type);
       if (m.type === 'characterData' && m.target) {
         if (!shouldSkipNode(m.target)) {
-          console.debug('[normalize] characterData change in', m.target.parentElement);
+          debug('[normalize] characterData change in', m.target.parentElement);
           replaceInTextNode(m.target);
         }
       }
@@ -109,11 +139,11 @@ function observeForChanges() {
         for (const n of m.addedNodes) {
           if (n.nodeType === Node.TEXT_NODE) {
             if (!shouldSkipNode(n)) {
-              console.debug('[normalize] added text node', n.parentElement);
+              debug('[normalize] added text node', n.parentElement);
               replaceInTextNode(n);
             }
           } else if (n.nodeType === Node.ELEMENT_NODE) {
-            console.debug('[normalize] added element', n);
+            debug('[normalize] added element', n);
             applyNormalizationToDocument(n);
           }
         }
@@ -121,14 +151,14 @@ function observeForChanges() {
     }
   });
   normalizeObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
-  console.debug('[normalize] observer started');
+  debug('[normalize] observer started');
 }
 
 function disconnectObserver() {
   if (!normalizeObserver) return;
   normalizeObserver.disconnect();
   normalizeObserver = null;
-  console.debug('[normalize] observer disconnected');
+  debug('[normalize] observer disconnected');
 }
 
 function setNormalization(enabled) {
@@ -150,7 +180,7 @@ chrome.storage.sync.get({ [NORMALIZE_KEY]: false }, (items) => {
 
 // Also respond to storage changes (in case the setting is changed elsewhere)
 chrome.storage.onChanged.addListener((changes, area) => {
-  console.debug('[storage] changes', changes, area);
+  debug('[storage] changes', changes, area);
   if (area === 'sync' && changes[NORMALIZE_KEY]) {
     setNormalization(Boolean(changes[NORMALIZE_KEY].newValue));
   }
@@ -164,7 +194,7 @@ let headerObserver = null;
 function applyHeaderVisibilityToAll() {
   // Only target the *first* <header> in the document (the main header), not all elements
   const h = document.querySelector('header');
-  if (!h) return;
+  if (!h) return false;
 
   // Properties to save/restore when collapsing the header
   const props = ['display','height','minHeight','maxHeight','paddingTop','paddingBottom','marginTop','marginBottom','overflow','visibility','pointerEvents'];
@@ -193,7 +223,7 @@ function applyHeaderVisibilityToAll() {
     h.setAttribute('aria-hidden', 'true');
     h.setAttribute('data-tzvet-hidden', 'true');
 
-    console.log('[header] collapsed (no space)');
+    debugLog('[header] collapsed (no space)');
   } else {
     // restore previous values if we saved them
     if (h.getAttribute('data-tzvet-hidden') === 'true') {
@@ -217,28 +247,32 @@ function applyHeaderVisibilityToAll() {
     h.removeAttribute('aria-hidden');
     h.removeAttribute('data-tzvet-hidden');
 
-    console.log('[header] restored');
+    debugLog('[header] restored');
   }
+  return true;
 }
 
 function observeHeaderAdditions() {
   if (headerObserver) return;
   headerObserver = new MutationObserver((mutations) => {
-    console.debug('[header] mutations', mutations.length);
+    debug('[header] mutations', mutations.length);
     for (const m of mutations) {
       if (m.type === 'childList') {
         for (const n of m.addedNodes) {
           if (n.nodeType === Node.ELEMENT_NODE) {
-            console.debug('[header] added node', n);
-            if (n.tagName && n.tagName.toLowerCase() === 'header') applyHeaderVisibilityToAll();
-            else if (n.querySelector && n.querySelector('header')) applyHeaderVisibilityToAll();
+            debug('[header] added node', n);
+            if (n.tagName && n.tagName.toLowerCase() === 'header') {
+              if (applyHeaderVisibilityToAll()) disconnectHeaderObserver();
+            } else if (n.querySelector && n.querySelector('header')) {
+              if (applyHeaderVisibilityToAll()) disconnectHeaderObserver();
+            }
           }
         }
       }
     }
   });
   headerObserver.observe(document.body, { childList: true, subtree: true });
-  console.debug('[header] observer started');
+  debug('[header] observer started');
 }
 
 function disconnectHeaderObserver() {
@@ -249,10 +283,10 @@ function disconnectHeaderObserver() {
 
 function setHeaderVisibility(hidden) {
   headerHidden = !!hidden;
-  console.debug('[header] setHeaderVisibility', headerHidden);
+  debug('[header] setHeaderVisibility', headerHidden);
   if (headerHidden) {
-    applyHeaderVisibilityToAll();
-    observeHeaderAdditions();
+    const applied = applyHeaderVisibilityToAll();
+    if (!applied) observeHeaderAdditions();
     console.log('[header] hidden');
   } else {
     disconnectHeaderObserver();
@@ -263,7 +297,7 @@ function setHeaderVisibility(hidden) {
 
 // messages from popup
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  console.debug('[cs] popup message', msg && msg.type);
+  debug('[cs] popup message', msg && msg.type);
   if (msg?.type === 'HIGHLIGHT') {
     document.body.style.backgroundColor = msg.color || 'rgba(255,255,0,0.15)';
     sendResponse({ status: 'done' });
@@ -285,19 +319,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   } else if (msg?.type === 'QTIP_APPLY_NOW') {
     applyQtipPlaceholderToAll();
     sendResponse({ status: 'ran' });
+  } else if (msg?.type === 'EXTRACT_LAB_TRENDS') {
+    sendResponse(extractLabTrends());
   }
 });
 
 // Initialize header and q-tip settings from storage
 chrome.storage.sync.get({ [HEADER_KEY]: false, qtipPlaceholder: false }, (items) => {
-  console.debug('[storage] init', items);
+  debug('[storage] init', items);
   setHeaderVisibility(Boolean(items[HEADER_KEY]));
   setQtipReplacement(Boolean(items.qtipPlaceholder));
 });
 
 // Watch for header and q-tip setting changes
 chrome.storage.onChanged.addListener((changes, area) => {
-  console.debug('[storage] onChanged', changes, area);
+  debug('[storage] onChanged', changes, area);
   if (area === 'sync') {
     if (changes[HEADER_KEY]) setHeaderVisibility(Boolean(changes[HEADER_KEY].newValue));
     if (changes.qtipPlaceholder) setQtipReplacement(Boolean(changes.qtipPlaceholder.newValue));
@@ -306,7 +342,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 let qtipReplaced = false;
 let qtipObserver = null;
 const QTIP_SELECTOR = '.qtip.qtip-default.ezy-tooltip';
-const QTIP_PLACEHOLDER = '<div class="tzvet-qtip-placeholder" style="padding:6px;color:#374151">(tooltip hidden)</div>';
+const QTIP_PLACEHOLDER = '<div class="tzvet-qtip-placeholder" style="padding:6px;color:#374151">(popup disabled)</div>';
 
 // ---- q-tip helpers: wait for loading to finish and replace with first content child ----
 const qtipReadyObservers = new Map();
@@ -355,7 +391,7 @@ function waitForQtipReadyAndApply(el, timeout = 5000) {
     applyQtipReplacement(el);
     return;
   }
-  console.log('[qtip] waiting for ready', el);
+  debugLog('[qtip] waiting for ready', el);
   const obs = new MutationObserver(() => {
     if (!isQtipLoading(el)) {
       const o = qtipReadyObservers.get(el);
@@ -372,7 +408,7 @@ function waitForQtipReadyAndApply(el, timeout = 5000) {
       if (o) o.disconnect();
       qtipReadyObservers.delete(el);
       applyQtipReplacement(el);
-      console.log('[qtip] timed out waiting for ready, applied fallback', el);
+      debugLog('[qtip] timed out waiting for ready, applied fallback', el);
     }
   }, timeout);
   obs._tzvet_timeout = to;
@@ -411,7 +447,7 @@ function applyQtipPlaceholderToAll(root = document.body) {
         }
       }
     });
-    console.log('[qtip] applied', { replaced: replacedCount, restored: restoredCount, totalFound: items.length }, root === document.body ? 'document' : root);
+    debugLog('[qtip] applied', { replaced: replacedCount, restored: restoredCount, totalFound: items.length }, root === document.body ? 'document' : root);
   } catch (e) {
     console.warn('[qtip] apply error', e);
   }
@@ -420,13 +456,13 @@ function applyQtipPlaceholderToAll(root = document.body) {
 function observeQtipAdditions() {
   if (qtipObserver) return;
   qtipObserver = new MutationObserver((mutations) => {
-    console.log('[qtip] mutations', mutations.length);
+    debugLog('[qtip] mutations', mutations.length);
     for (const m of mutations) {
       if (m.type === 'childList') {
         for (const n of m.addedNodes) {
           if (n.nodeType === Node.ELEMENT_NODE) {
             const el = n;
-            console.log('[qtip] added node', el);
+            debugLog('[qtip] added node', el);
             if (el.matches && el.matches(QTIP_SELECTOR)) {
               if (qtipReplaced) {
                 if (isQtipLoading(el)) waitForQtipReadyAndApply(el);
@@ -439,7 +475,7 @@ function observeQtipAdditions() {
         }
       } else if (m.type === 'attributes') {
         const t = m.target;
-        console.log('[qtip] attribute change', m.attributeName, t);
+        debugLog('[qtip] attribute change', m.attributeName, t);
         if (t instanceof Element) {
           if (t.matches && t.matches(QTIP_SELECTOR)) {
             if (qtipReplaced) {
@@ -458,7 +494,7 @@ function observeQtipAdditions() {
     }
   });
   qtipObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
-  console.log('[qtip] observer started');
+  debugLog('[qtip] observer started');
 }
 
 function disconnectQtipObserver() {
@@ -466,7 +502,7 @@ function disconnectQtipObserver() {
   qtipObserver.disconnect();
   qtipObserver = null;
   clearAllQtipReadyObservers();
-  console.log('[qtip] observer disconnected');
+  debugLog('[qtip] observer disconnected');
 }
 
 function setQtipReplacement(enabled) {
