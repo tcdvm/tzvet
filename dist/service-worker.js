@@ -1,7 +1,9 @@
+const ALLOWED_ORIGIN = 'https://utcvm.use1.ezyvet.com';
+
 function isAllowedUrl(url) {
   try {
     const u = new URL(url);
-    return u.protocol === 'https:' && u.hostname === 'utcvm.use1.ezyvet.com';
+    return u.origin === ALLOWED_ORIGIN;
   } catch {
     return false;
   }
@@ -11,11 +13,28 @@ function isAllowedUrl(url) {
 chrome.action.disable();
 
 // Enable/disable for tab updates
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   const url = changeInfo.url ?? tab?.url;
   if (!url) return;
-  if (isAllowedUrl(url)) chrome.action.enable(tabId);
-  else chrome.action.disable(tabId);
+  const allowed = isAllowedUrl(url);
+  // if (allowed) chrome.action.enable(tabId);
+  // else chrome.action.disable(tabId);
+  try {
+    if (allowed) {
+      await chrome.sidePanel.setOptions({
+        tabId,
+        path: 'sidepanel/index.html',
+        enabled: true
+      });
+    } else {
+      await chrome.sidePanel.setOptions({
+        tabId,
+        enabled: false
+      });
+    }
+  } catch (e) {
+    console.warn('Failed to set side panel options:', e);
+  }
 });
 
 // Also check when a tab becomes active
@@ -29,8 +48,40 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
 chrome.runtime.onInstalled.addListener(async () => {
   const tabs = await chrome.tabs.query({});
   for (const t of tabs) {
-    if (isAllowedUrl(t.url)) chrome.action.enable(t.id);
+    const allowed = isAllowedUrl(t.url);
+    if (allowed) chrome.action.enable(t.id);
     else chrome.action.disable(t.id);
+    try {
+      await chrome.sidePanel.setOptions({
+        tabId: t.id,
+        path: 'sidepanel/index.html',
+        enabled: allowed
+      });
+    } catch (e) {
+      console.warn('Failed to set side panel options:', e);
+    }
+  }
+  try {
+    await chrome.sidePanel?.setPanelBehavior({ openPanelOnActionClick: true });
+  } catch (e) {
+    console.warn('Failed to set side panel behavior:', e);
+  }
+});
+
+chrome.runtime.onStartup.addListener(async () => {
+  try {
+    await chrome.sidePanel?.setPanelBehavior({ openPanelOnActionClick: true });
+  } catch (e) {
+    console.warn('Failed to set side panel behavior on startup:', e);
+  }
+});
+
+chrome.action.onClicked.addListener(async (tab) => {
+  if (!tab?.id || !isAllowedUrl(tab.url)) return;
+  try {
+    await chrome.sidePanel?.open({ tabId: tab.id });
+  } catch (e) {
+    console.warn('Failed to open side panel:', e);
   }
 });
 

@@ -87,8 +87,9 @@ module.exports = defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       input: {
-        popup: path.resolve(__dirname, 'src/popup/index.html'),
+        sidepanel: path.resolve(__dirname, 'src/sidepanel/index.html'),
         options: path.resolve(__dirname, 'src/options/options.html'),
+        trends: path.resolve(__dirname, 'src/trends/index.html'),
         'content-script': path.resolve(__dirname, 'src/content-script.js'),
         'service-worker': path.resolve(__dirname, 'src/service-worker.js')
       },

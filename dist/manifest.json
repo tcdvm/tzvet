@@ -9,7 +9,6 @@
     "128": "icons/icon128.png"
   },
   "action": {
-    "default_popup": "popup/index.html",
     "default_icon": "icons/icon48.png"
   },
   "background": {
@@ -19,7 +18,8 @@
   "permissions": [
     "storage",
     "scripting",
-    "activeTab"
+    "tabs",
+    "sidePanel"
   ],
   "host_permissions": [
     "https://utcvm.use1.ezyvet.com/*"

@@ -1,5 +1,6 @@
 // content-script.js - runs on matched pages
 import { extractLabTrends } from "/content/extract-lab-trends.js.js";
+import { swLog } from "/shared/sw-log.js.js";
 
 console.log('TZVet content script loaded on', location.href);
 const DEBUG = true;
@@ -156,7 +157,7 @@ function applyHeaderVisibilityToAll() {
   if (!h) return false;
 
   // Properties to save/restore when collapsing the header
-  const props = ['display','height','minHeight','maxHeight','paddingTop','paddingBottom','marginTop','marginBottom','overflow','visibility','pointerEvents'];
+  const props = ['display', 'height', 'minHeight', 'maxHeight', 'paddingTop', 'paddingBottom', 'marginTop', 'marginBottom', 'overflow', 'visibility', 'pointerEvents'];
 
   if (headerHidden) {
     // Save previous inline values as a JSON blob so we can restore exactly
@@ -254,9 +255,9 @@ function setHeaderVisibility(hidden) {
   }
 }
 
-// messages from popup
+// messages from side panel
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  debug('[cs] popup message', msg && msg.type);
+  debug('[cs] side panel message', msg && msg.type);
   if (msg?.type === 'HIGHLIGHT') {
     document.body.style.backgroundColor = msg.color || 'rgba(255,255,0,0.15)';
     sendResponse({ status: 'done' });
@@ -279,7 +280,47 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     applyQtipPlaceholderToAll();
     sendResponse({ status: 'ran' });
   } else if (msg?.type === 'EXTRACT_LAB_TRENDS') {
-    sendResponse(extractLabTrends());
+    try {
+      const result = extractLabTrends();
+      swLog('Extract lab trends result', result);
+      if (result?.ok && result.patient?.id) {
+        const key = result.patient.id;
+        chrome.storage.local.get({ labTrendsByPatient: {} }, (items) => {
+          const store = items.labTrendsByPatient || {};
+          const existing = store[key] || { patient: result.patient, observations: [] };
+          const combined = existing.observations.concat(result.observations || []);
+          const seen = new Set();
+          const deduped = [];
+          combined.forEach((obs) => {
+            const sig = [
+              obs.panel,
+              obs.testName,
+              obs.collectedAt,
+              obs.valueRaw,
+              obs.unit,
+              obs.lowestValue,
+              obs.highestValue,
+              obs.qualifier
+            ].join('|');
+            if (seen.has(sig)) return;
+            seen.add(sig);
+            deduped.push(obs);
+          });
+          store[key] = {
+            patient: result.patient,
+            observations: deduped,
+            updatedAt: new Date().toISOString()
+          };
+          chrome.storage.local.set({ labTrendsByPatient: store });
+        });
+      }
+      sendResponse(result);
+    } catch (e) {
+      const errMsg = e?.message || String(e);
+      console.warn('[cs] extract lab trends failed', e);
+      sendResponse({ ok: false, error: errMsg });
+    }
+    return true;
   }
 });
 
@@ -304,7 +345,7 @@ const QTIP_KEY = 'qtipPlaceholder';
 let qtipReplaced = false;
 let qtipObserver = null;
 const QTIP_SELECTOR = '.qtip.qtip-default.ezy-tooltip';
-const QTIP_PLACEHOLDER = '<div class="tzvet-qtip-placeholder" style="padding:6px;color:#374151">(popup disabled)</div>';
+const QTIP_PLACEHOLDER = '<div class="tzvet-qtip-placeholder" style="padding:6px;color:#374151">(popups disabled)</div>';
 
 // ---- q-tip helpers: wait for loading to finish and replace with first content child ----
 const qtipReadyObservers = new Map();
@@ -381,7 +422,7 @@ function clearAllQtipReadyObservers() {
     try {
       if (o && typeof o.disconnect === 'function') o.disconnect();
       if (o && o._tzvet_timeout) clearTimeout(o._tzvet_timeout);
-    } catch (e) {}
+    } catch (e) { }
   }
   qtipReadyObservers.clear();
 }
