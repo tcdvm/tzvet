@@ -1,6 +1,10 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+@plugin "daisyui" {
+  themes: "bumblebee"
+}
+
+;
 
 body {
   font-family: system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif;

@@ -1,41 +1,5 @@
 import '../styles.css';
 
-const pingBtn = document.getElementById('ping');
-pingBtn.addEventListener('click', async () => {
-  const statusEl = document.getElementById('status');
-  statusEl.textContent = 'Pinging…';
-  pingBtn.disabled = true;
-  try {
-    const result = await chrome.runtime.sendMessage({ type: 'PING' });
-    if (result?.type === 'PONG') {
-      const t = result.time ? new Date(result.time).toLocaleTimeString() : '';
-      statusEl.textContent = `SW replied: ${result.type} ${t}`;
-    } else {
-      statusEl.textContent = 'SW replied: (no payload)';
-    }
-  } catch (err) {
-    const msg = err?.message || String(err);
-    statusEl.textContent = 'Ping failed: ' + msg;
-    console.error('ping error', err);
-  } finally {
-    pingBtn.disabled = false;
-  }
-});
-
-document.getElementById('highlight').addEventListener('click', async () => {
-  // Send message to the active tab's content script
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (tab?.id) {
-    const result = await sendMessageWithInjectRetry(tab.id, { type: 'HIGHLIGHT', color: 'rgba(255,230,200,0.5)' });
-    if (!result.ok) {
-      status.textContent = `Content script unavailable: ${formatSendError(result.error)}`;
-      console.warn('sendMessage failed after retry:', result.error);
-      return;
-    }
-    console.log('Highlight response', result.res);
-  }
-});
-
 // ---- Normalize species labels UI ----
 const normalizeCheckbox = document.getElementById('normalize');
 const status = document.getElementById('status');
@@ -43,6 +7,7 @@ const status = document.getElementById('status');
 const extractBtn = document.getElementById('extractLabTrends');
 const storedTrendsEl = document.getElementById('storedTrends');
 const clearTrendsBtn = document.getElementById('clearTrends');
+const autoOpenTrends = document.getElementById('autoOpenTrends');
 if (extractBtn) {
   extractBtn.addEventListener('click', async () => {
     status.textContent = 'Extracting lab trends...';
@@ -82,9 +47,14 @@ if (extractBtn) {
       }
       const key = `labTrends:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       await chrome.storage.session.set({ [key]: combinedPayload });
-      status.textContent = `Lab trends found: ${payload.count}. Opening trends...`;
-      const trendsUrl = chrome.runtime.getURL(`trends/index.html?key=${encodeURIComponent(key)}`);
-      await chrome.tabs.create({ url: trendsUrl });
+      const shouldOpen = autoOpenTrends ? autoOpenTrends.checked : true;
+      if (shouldOpen) {
+        status.textContent = `Lab trends found: ${payload.count}. Opening trends...`;
+        const trendsUrl = chrome.runtime.getURL(`trends/index.html?key=${encodeURIComponent(key)}`);
+        await chrome.tabs.create({ url: trendsUrl });
+      } else {
+        status.textContent = `Lab trends found: ${payload.count}. Cached.`;
+      }
       console.log('Lab trends payload', combinedPayload);
       refreshStoredTrends();
     } finally {
@@ -101,6 +71,16 @@ chrome.storage.sync.get({ normalizeSpecies: false, headerHidden: false, qtipPlac
   const qtipCheckbox = document.getElementById('toggleQtip');
   if (qtipCheckbox) qtipCheckbox.checked = items.qtipPlaceholder;
 });
+
+chrome.storage.sync.get({ autoOpenTrends: true }, (items) => {
+if (autoOpenTrends) autoOpenTrends.checked = items.autoOpenTrends;
+});
+
+if (autoOpenTrends) {
+  autoOpenTrends.addEventListener('change', (e) => {
+    chrome.storage.sync.set({ autoOpenTrends: !!e.target.checked });
+  });
+}
 
 // header toggle UI
 const headerCheckbox = document.getElementById('toggleHeader');
@@ -127,7 +107,7 @@ if (qtipCheckbox) {
   qtipCheckbox.addEventListener('change', async (e) => {
     const enabled = !!e.target.checked;
     chrome.storage.sync.set({ qtipPlaceholder: enabled }, async () => {
-      status.textContent = enabled ? 'Q-tips replaced' : 'Q-tips restored';
+      status.textContent = enabled ? 'Pop-ups replaced' : 'Pop-ups restored';
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (tab?.id) {
         const result = await sendMessageWithInjectRetry(tab.id, { type: 'QTIP_TOGGLE', enabled });
@@ -181,7 +161,7 @@ function formatSendError(err) {
 normalizeCheckbox.addEventListener('change', async (e) => {
   const enabled = !!e.target.checked;
   chrome.storage.sync.set({ normalizeSpecies: enabled }, async () => {
-    status.textContent = enabled ? 'Normalize ON' : 'Normalize OFF';
+    status.textContent = enabled ? 'Species labels fixed' : 'Species labels original - refresh page';
     // notify active tab's content script to enable/disable and run immediately
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (tab?.id) {
@@ -223,12 +203,15 @@ function renderStoredTrends(entries) {
     const row = document.createElement('div');
     const animal = patient?.name || 'Unknown';
     const owner = patient?.ownerLastName || 'Unknown';
-    const when = updatedAt ? ` • updated ${formatRelativeTime(updatedAt)}` : '';
-    row.className = 'flex items-center justify-between gap-2';
-    const label = document.createElement('span');
-    label.textContent = `"${animal}" ${owner}${when}`;
+    row.className = 'mb-2 flex items-start justify-between gap-2';
+    const textWrap = document.createElement('div');
+    const label = document.createElement('div');
+    label.textContent = `"${animal}" ${owner}`;
+    const meta = document.createElement('div');
+    meta.className = 'text-[11px] text-gray-500 ml-1';
+    meta.textContent = updatedAt ? `updated ${formatRelativeTime(updatedAt)}` : '';
     const openBtn = document.createElement('button');
-    openBtn.className = 'btn btn-ghost btn-xs';
+    openBtn.className = 'btn btn-xs';
     openBtn.textContent = 'Open';
     openBtn.addEventListener('click', async () => {
       const store = await chrome.storage.local.get({ labTrendsByPatient: {} });
@@ -242,7 +225,9 @@ function renderStoredTrends(entries) {
       const trendsUrl = chrome.runtime.getURL(`trends/index.html?key=${encodeURIComponent(sessionKey)}`);
       await chrome.tabs.create({ url: trendsUrl });
     });
-    row.appendChild(label);
+    textWrap.appendChild(label);
+    if (meta.textContent) textWrap.appendChild(meta);
+    row.appendChild(textWrap);
     row.appendChild(openBtn);
     storedTrendsEl.appendChild(row);
   });

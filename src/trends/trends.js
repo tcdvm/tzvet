@@ -7,14 +7,21 @@ const patientEl = document.getElementById('patient');
 
 function asDateKey(iso) {
   if (!iso) return 'Unknown';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return 'Unknown';
-  return d.toISOString().slice(0, 10);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
 }
 
 function formatDateLabel(dateKey) {
   if (dateKey === 'Unknown') return 'Unknown';
-  const d = new Date(dateKey);
+  const parts = dateKey.split('-').map((p) => Number(p));
+  if (parts.length !== 3 || parts.some((n) => Number.isNaN(n))) return 'Unknown';
+  const [year, month, day] = parts;
+  const d = new Date(year, month - 1, day, 12);
   if (Number.isNaN(d.getTime())) return 'Unknown';
   const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const label = `${monthNames[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;

@@ -1,25 +1,28 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>TZVet — Lab Trends</title>
-    <link rel="stylesheet" href="../styles.css">
-  </head>
-  <body class="p-6 bg-base-100 text-base-content">
-    <div class="max-w-6xl mx-auto">
-      <div class="flex items-center justify-between mb-4">
-        <div>
-          <h1 class="text-xl font-semibold">Lab Trends</h1>
-          <div id="patient" class="text-sm text-gray-500"></div>
-        </div>
-        <button id="refresh" class="btn btn-sm btn-outline">Refresh</button>
-      </div>
 
-      <div id="status" class="text-sm text-gray-500 mb-4">Waiting for data…</div>
-      <div id="panels" class="space-y-8"></div>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>TZVet — Lab Trends</title>
+  <link rel="stylesheet" href="../styles.css">
+</head>
+
+<body class="p-6 bg-base-100 text-base-content" data-theme="light">
+  <div class="max-w-6xl mx-auto">
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <h1 class="text-xl font-semibold">Lab Trends</h1>
+        <div id="patient" class="text-sm text-gray-500"></div>
+      </div>
+      <button id="refresh" class="btn btn-sm btn-outline">Refresh</button>
     </div>
 
-    <script type="module" src="/trends/trends.js"></script>
-  </body>
+    <div id="status" class="text-sm text-gray-500 mb-4">Waiting for data…</div>
+    <div id="panels" class="space-y-8"></div>
+  </div>
+
+  <script type="module" src="/trends/trends.js"></script>
+</body>
+
 </html>

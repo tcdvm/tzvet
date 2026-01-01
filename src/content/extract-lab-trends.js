@@ -28,9 +28,11 @@ function cleanRowText(text) {
 function parseDateFromLine(line) {
   const m = line.match(/\b(\d{1,2}-\d{1,2}-\d{4})\s+(\d{1,2}:\d{2}:\d{2})(am|pm)\b/i);
   if (!m) return null;
-  const iso = new Date(`${m[1]} ${m[2]} ${m[3]}`.toUpperCase());
-  if (Number.isNaN(iso.getTime())) return null;
-  return iso.toISOString();
+  const parts = m[1].split('-').map((p) => p.padStart(2, '0'));
+  const mm = parts[0];
+  const dd = parts[1];
+  const yyyy = parts[2];
+  return `${yyyy}-${mm}-${dd}`;
 }
 
 function extractReference(lines) {
@@ -116,12 +118,52 @@ function extractPatientInfo(container) {
   return { name, id: patientId, ownerLastName };
 }
 
+function normalizePanelName(panel) {
+  if (!panel) return panel;
+  let name = String(panel).replace(/\s+/g, ' ').trim();
+  name = name.replace(/^(after hours|stat|emergency)\s+/i, '');
+
+  if (/^cbc\s+and\s+absolute\s+reticulocyte\s+count$/i.test(name)) return 'CBC';
+  if (/^after hours cbc$/i.test(name)) return 'CBC';
+  if (/\bcbc\b/i.test(name)) return 'CBC';
+
+  if (/^small animal \(no canine\) panel and electrolytes$/i.test(name)) return 'Chemistry';
+  if (/^canine chemistry panel and electrolytes$/i.test(name)) return 'Chemistry';
+  if (/^canine panel and electrolytes$/i.test(name)) return 'Chemistry';
+  if (/^after hours sa general chemistry panel$/i.test(name)) return 'Chemistry';
+  if (/chemistry|general chemistry|electrolyte/i.test(name)) return 'Chemistry';
+
+  if (/urinalysis|urine analysis/i.test(name)) return 'Urinalysis';
+  if (/animal.*panel/i.test(name)) return 'Chemistry';
+
+  return name;
+}
+
+function normalizeTestName(testName) {
+  if (!testName) return testName;
+  let name = String(testName)
+    .replace(/\s*:\s*Value\s*$/i, '')
+    .replace(/^\s*after hours\s+/i, '')
+    .trim();
+  name = name.replace(/\s+/g, ' ');
+  // Strip trailing units accidentally embedded in the test name.
+  name = name.replace(/\s*\([^)]*(mg\/dL|g\/dL|U\/L|mmol\/L|ug\/dL|%|fL|pg|K\/uL|M\/uL)[^)]*\)\s*$/i, '').trim();
+  const map = {
+    'alanine aminotransferase': 'Alanine aminotransferase',
+    'alkaline phosphatase': 'Alk Phosphatase',
+    'urea nitrogen (bun)': 'Urea Nitrogen',
+    'phosphate': 'Phosphorus',
+    'total bilirubin': 'Bilirubin, Total'
+  };
+  const key = name.toLowerCase();
+  if (map[key]) return map[key];
+  return name;
+}
+
 function isTargetPanel(panel) {
   if (!panel) return false;
-  const text = String(panel);
-  const nameMatch = /(?:\bcbc\b|chemistry|electrolyte|urinalysis|urine analysis)/i.test(text);
-  const smallAnimalPanelMatch = /animal.*panel/i.test(text);
-  return nameMatch || smallAnimalPanelMatch;
+  const name = normalizePanelName(panel);
+  return /^(CBC|Chemistry|Urinalysis)$/i.test(name);
 }
 
 function isHeaderRow(nonEmptyCells) {
@@ -132,7 +174,7 @@ function isHeaderRow(nonEmptyCells) {
 function parseObservationRow(cells) {
   if (!cells.length) return null;
 
-  let testName = cells[0] || null;
+  let testName = normalizeTestName(cells[0] || null);
   const valueRaw = cells[1] || null;
   const unit = cells[2] || null;
   const lowestValue = cells[3] || null;
@@ -158,7 +200,8 @@ function parseObservationRow(cells) {
 function buildObservations(rows) {
   const observations = [];
   rows.forEach((row) => {
-    const panel = row.meta?.panel || null;
+    const originalPanel = row.meta?.panel || null;
+    const panel = normalizePanelName(originalPanel);
     if (!isTargetPanel(panel)) return;
     let lastObservation = null;
     row.nestedTableMatrix.forEach((cells) => {
@@ -181,6 +224,7 @@ function buildObservations(rows) {
 
       const obs = {
         panel,
+        originalPanel,
         collectedAt: row.meta?.sampleDate || null,
         reference: row.meta?.reference || null,
         species: row.meta?.species || [],
