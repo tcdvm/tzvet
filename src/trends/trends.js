@@ -2,8 +2,19 @@ import '../styles.css';
 
 const statusEl = document.getElementById('status');
 const panelsEl = document.getElementById('panels');
-const refreshBtn = document.getElementById('refresh');
 const patientEl = document.getElementById('patient');
+const panelsFoundEl = document.getElementById('panelsFound');
+const panelButtons = {
+  CBC: document.getElementById('panelCbc'),
+  Chemistry: document.getElementById('panelChem'),
+  Urinalysis: document.getElementById('panelUa')
+};
+
+let panelOrder = [];
+let panelSections = new Map();
+let activePanel = null;
+let lastObservations = [];
+const refDateByPanel = new Map();
 
 function asDateKey(iso) {
   if (!iso) return 'Unknown';
@@ -16,21 +27,16 @@ function asDateKey(iso) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-function formatDateLabel(dateKey) {
+function formatDateLabel(dateKey, short = false) {
   if (dateKey === 'Unknown') return 'Unknown';
   const parts = dateKey.split('-').map((p) => Number(p));
   if (parts.length !== 3 || parts.some((n) => Number.isNaN(n))) return 'Unknown';
   const [year, month, day] = parts;
   const d = new Date(year, month - 1, day, 12);
   if (Number.isNaN(d.getTime())) return 'Unknown';
-  const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const label = `${monthNames[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
-  const now = new Date();
-  const monthsDiff = Math.abs(now - d) / (1000 * 60 * 60 * 24 * 30.4375);
-  const rounded = Math.round(monthsDiff * 10) / 10;
-  const unit = rounded === 1 ? 'month' : 'months';
-  const when = d <= now ? 'ago' : 'from now';
-  return `${label} (~${rounded} ${unit} ${when})`;
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  if (short) return `${monthNames[d.getMonth()]} ${d.getDate()}`;
+  return `${monthNames[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
 }
 
 function sortDateKeys(keys) {
@@ -41,16 +47,43 @@ function sortDateKeys(keys) {
   });
 }
 
-function formatCell(observations) {
+function formatCell(observations, refLow, refHigh) {
   if (!observations || observations.length === 0) return '';
   return observations
     .map((obs) => {
       const parts = [];
-      if (obs.valueRaw) parts.push(obs.valueRaw);
-      if (obs.qualifier) parts.push(`(${obs.qualifier})`);
+      if (obs.valueRaw) {
+        const value = parseNumber(obs.valueRaw);
+        const low = parseNumber(refLow);
+        const high = parseNumber(refHigh);
+        const isAbnormal = Number.isFinite(value)
+          && ((Number.isFinite(low) && value < low) || (Number.isFinite(high) && value > high));
+        const isLow = Number.isFinite(value) && Number.isFinite(low) && value < low;
+        const isHigh = Number.isFinite(value) && Number.isFinite(high) && value > high;
+        const valueText = escapeHtml(obs.valueRaw);
+        let rendered = isAbnormal ? `<strong>${valueText}</strong>` : valueText;
+        if (isLow) rendered += ' <span class="status status-sm status-info align-middle" aria-label="info"></span>';
+        else if (isHigh) rendered += ' <span class="status status-sm status-error align-middle" aria-label="error"></span>';
+        parts.push(rendered);
+      }
+      if (obs.qualifier) parts.push(`(${escapeHtml(obs.qualifier)})`);
       return parts.join(' ');
     })
     .join('; ');
+}
+
+function parseNumber(value) {
+  if (value === null || value === undefined) return NaN;
+  const cleaned = String(value).replace(/[^\d.+-]/g, '');
+  if (!cleaned) return NaN;
+  return Number(cleaned);
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 function getTestUnit(observations) {
@@ -69,7 +102,28 @@ function getReferenceRange(observations) {
   return '';
 }
 
+function getReferenceForTestDate(panelObs, testName, dateKey) {
+  const match = panelObs.find((o) => o.testName === testName && asDateKey(o.collectedAt) === dateKey);
+  if (match && (match.lowestValue || match.highestValue)) {
+    return { low: match.lowestValue || null, high: match.highestValue || null };
+  }
+  return { low: null, high: null };
+}
+
+function formatRangeText(ref) {
+  if (!ref) return '';
+  const low = ref.low || '';
+  const high = ref.high || '';
+  return `${low}${low && high ? '-' : ''}${high}`;
+}
+
 function buildPanelTables(observations) {
+  lastObservations = observations;
+  if (panelsEl) {
+    panelsEl.className = 'relative';
+    panelsEl.innerHTML = '';
+  }
+  panelSections = new Map();
   const panels = new Map();
   observations.forEach((obs) => {
     if (!obs.panel || !obs.testName) return;
@@ -77,17 +131,35 @@ function buildPanelTables(observations) {
     panels.get(obs.panel).push(obs);
   });
 
-  panelsEl.innerHTML = '';
   if (!panels.size) {
     statusEl.textContent = 'No panel data found.';
+    if (panelsFoundEl) panelsFoundEl.textContent = '';
     return;
   }
 
-  statusEl.textContent = `Panels found: ${panels.size}`;
+  statusEl.textContent = '';
+  panelOrder = ['CBC', 'Chemistry', 'Urinalysis', 'UA'];
+  const sortedPanels = Array.from(panels.entries()).sort((a, b) => {
+    const aIdx = panelOrder.indexOf(a[0]);
+    const bIdx = panelOrder.indexOf(b[0]);
+    const aRank = aIdx === -1 ? Number.MAX_SAFE_INTEGER : aIdx;
+    const bRank = bIdx === -1 ? Number.MAX_SAFE_INTEGER : bIdx;
+    if (aRank !== bRank) return aRank - bRank;
+    return a[0].localeCompare(b[0]);
+  });
+  if (panelsFoundEl) panelsFoundEl.textContent = `(${sortedPanels.length} panels)`;
 
-  for (const [panelName, panelObs] of panels.entries()) {
+  for (const [panelName, panelObs] of sortedPanels) {
     const dateSet = new Set(panelObs.map((o) => asDateKey(o.collectedAt)));
     const dates = sortDateKeys(dateSet);
+    const selectedRefDate = refDateByPanel.get(panelName) || (dates.length ? dates[dates.length - 1] : 'Unknown');
+    const originalPanelByDate = new Map();
+    panelObs.forEach((obs) => {
+      const dateKey = asDateKey(obs.collectedAt);
+      if (!originalPanelByDate.has(dateKey) && obs.originalPanel) {
+        originalPanelByDate.set(dateKey, obs.originalPanel);
+      }
+    });
 
     const byTest = new Map();
     panelObs.forEach((o) => {
@@ -97,33 +169,63 @@ function buildPanelTables(observations) {
       if (!byTest.get(testKey).has(dateKey)) byTest.get(testKey).set(dateKey, []);
       byTest.get(testKey).get(dateKey).push(o);
     });
+    const hasAnyRef = panelObs.some((o) => o.lowestValue || o.highestValue);
 
     const section = document.createElement('section');
-    section.className = 'card bg-base-200 shadow-sm';
+    section.className = 'card bg-base-200 shadow-sm w-full';
 
     const header = document.createElement('div');
     header.className = 'card-body';
     header.innerHTML = `<h2 class="card-title text-lg">${panelName}</h2>`;
 
     const tableWrap = document.createElement('div');
-    tableWrap.className = 'overflow-x-auto';
+    tableWrap.className = 'overflow-x-auto max-w-full';
 
     const table = document.createElement('table');
-    table.className = 'table table-zebra w-full text-sm';
+    table.className = 'table table-xs table-pin-rows table-zebra w-fit text-sm bg-base-100 border border-base-300 border-separate border-spacing-0 rounded-none';
 
     const thead = document.createElement('thead');
     const headRow = document.createElement('tr');
     const testTh = document.createElement('th');
-    testTh.textContent = 'Test';
+    testTh.className = 'w-44';
+    const testHeader = document.createElement('div');
+    testHeader.textContent = 'Test';
+    const refRow = document.createElement('div');
+    refRow.className = 'text-[11px] text-gray-400 flex items-center gap-1';
+    const refLabel = document.createElement('span');
+    refLabel.textContent = 'Ref range';
+    refRow.appendChild(refLabel);
+    if (hasAnyRef) {
+      const refSelect = document.createElement('select');
+      refSelect.className = 'select select-xs max-w-28';
+      dates.forEach((d) => {
+        const opt = document.createElement('option');
+        opt.value = d;
+        opt.textContent = formatDateLabel(d, true);
+        if (d === selectedRefDate) opt.selected = true;
+        refSelect.appendChild(opt);
+      });
+      refSelect.addEventListener('change', (e) => {
+        refDateByPanel.set(panelName, e.target.value);
+        buildPanelTables(lastObservations);
+        setActivePanel(panelName);
+      });
+      refRow.appendChild(refSelect);
+    }
+    testTh.appendChild(testHeader);
+    testTh.appendChild(refRow);
     headRow.appendChild(testTh);
     dates.forEach((d) => {
       const th = document.createElement('th');
-      th.textContent = formatDateLabel(d);
+      th.className = 'w-24';
+      const span = document.createElement('span');
+      span.className = 'cursor-pointer';
+      const tip = originalPanelByDate.get(d) || panelName;
+      span.title = tip;
+      span.textContent = formatDateLabel(d);
+      th.appendChild(span);
       headRow.appendChild(th);
     });
-    const rangeTh = document.createElement('th');
-    rangeTh.textContent = 'Ref Range';
-    headRow.appendChild(rangeTh);
     thead.appendChild(headRow);
     table.appendChild(thead);
 
@@ -132,20 +234,28 @@ function buildPanelTables(observations) {
     testNames.forEach((testName) => {
       const row = document.createElement('tr');
       const nameTd = document.createElement('td');
+      nameTd.className = 'w-44 max-w-44 break-words';
       const testObs = panelObs.filter((o) => o.testName === testName);
       const unit = getTestUnit(testObs);
-      nameTd.textContent = unit ? `${testName} (${unit})` : testName;
+      const displayName = `<span class="font-medium text-base-content">${testName}</span>`;
+      const ref = getReferenceForTestDate(panelObs, testName, selectedRefDate);
+      const range = formatRangeText(ref);
+      const metaParts = [];
+      if (range) metaParts.push(range);
+      else if (hasAnyRef) metaParts.push('<span class="text-[11px] text-gray-400 italic">no ref</span>');
+      if (unit) metaParts.push(`<span class="text-[11px] text-gray-400">(${unit})</span>`);
+      const meta = metaParts.length
+        ? `<div class="text-[12px] text-gray-500">${metaParts.join(' ')}</div>`
+        : '';
+      nameTd.innerHTML = `${displayName}${meta}`;
       row.appendChild(nameTd);
 
       dates.forEach((d) => {
         const td = document.createElement('td');
         const obsList = byTest.get(testName).get(d) || [];
-        td.textContent = formatCell(obsList);
+        td.innerHTML = formatCell(obsList, ref?.low, ref?.high);
         row.appendChild(td);
       });
-      const rangeTd = document.createElement('td');
-      rangeTd.textContent = getReferenceRange(testObs);
-      row.appendChild(rangeTd);
       tbody.appendChild(row);
     });
     table.appendChild(tbody);
@@ -154,7 +264,13 @@ function buildPanelTables(observations) {
     header.appendChild(tableWrap);
     section.appendChild(header);
     panelsEl.appendChild(section);
+    panelSections.set(panelName, section);
   }
+
+  const initial = activePanel && panelSections.has(activePanel)
+    ? activePanel
+    : (sortedPanels.length ? sortedPanels[0][0] : null);
+  setActivePanel(initial);
 }
 
 async function loadFromSession() {
@@ -163,7 +279,7 @@ async function loadFromSession() {
   const data = await chrome.storage.session.get(key);
   const payload = data[key];
   if (!payload || !payload.observations) {
-    statusEl.textContent = 'No data found. Extract from the side panel first.';
+    statusEl.textContent = '(No data found. Extract from the side panel first.)';
     panelsEl.innerHTML = '';
     if (patientEl) patientEl.textContent = '';
     return;
@@ -173,12 +289,57 @@ async function loadFromSession() {
     const owner = payload.patient?.ownerLastName || 'Unknown';
     patientEl.textContent = `"${animal}" ${owner}`;
   }
+  statusEl.textContent = '';
   buildPanelTables(payload.observations);
 }
 
-refreshBtn.addEventListener('click', async () => {
-  statusEl.textContent = 'Refreshing…';
-  await loadFromSession();
+function setActivePanel(panelName) {
+  if (!panelName || !panelSections.has(panelName)) return;
+  activePanel = panelName;
+  for (const [name, section] of panelSections.entries()) {
+    if (name === panelName) {
+      section.classList.remove('hidden');
+    } else {
+      section.classList.add('hidden');
+    }
+  }
+  updatePanelButtons();
+}
+
+function updatePanelButtons() {
+  Object.entries(panelButtons).forEach(([name, btn]) => {
+    if (!btn) return;
+    if (!panelSections.has(name)) {
+      btn.disabled = true;
+      btn.classList.add('btn-disabled');
+      btn.classList.remove('btn-active');
+      btn.classList.remove('btn-outline');
+      return;
+    }
+    btn.disabled = name === activePanel;
+    btn.classList.remove('btn-disabled');
+    if (name === activePanel) {
+      btn.classList.add('btn-active', 'btn-outline');
+    } else {
+      btn.classList.remove('btn-active', 'btn-outline');
+    }
+  });
+}
+
+Object.entries(panelButtons).forEach(([name, btn]) => {
+  if (!btn) return;
+  btn.addEventListener('click', () => setActivePanel(name));
+});
+
+document.addEventListener('keydown', (e) => {
+  if (!activePanel || !panelOrder.length) return;
+  if (e.target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+  if (!['ArrowLeft', 'ArrowRight'].includes(e.key)) return;
+  const available = panelOrder.filter((p) => panelSections.has(p));
+  if (!available.length) return;
+  const idx = Math.max(0, available.indexOf(activePanel));
+  const nextIdx = e.key === 'ArrowLeft' ? Math.max(0, idx - 1) : Math.min(available.length - 1, idx + 1);
+  setActivePanel(available[nextIdx]);
 });
 
 loadFromSession();

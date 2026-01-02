@@ -132,6 +132,7 @@ function normalizePanelName(panel) {
   if (/^canine panel and electrolytes$/i.test(name)) return 'Chemistry';
   if (/^after hours sa general chemistry panel$/i.test(name)) return 'Chemistry';
   if (/chemistry|general chemistry|electrolyte/i.test(name)) return 'Chemistry';
+  if (/renal panel/i.test(name)) return 'Chemistry';
 
   if (/urinalysis|urine analysis/i.test(name)) return 'Urinalysis';
   if (/animal.*panel/i.test(name)) return 'Chemistry';

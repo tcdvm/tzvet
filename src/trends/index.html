@@ -4,22 +4,25 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>TZVet — Lab Trends</title>
+  <title>Lab Trends</title>
   <link rel="stylesheet" href="../styles.css">
 </head>
 
-<body class="p-6 bg-base-100 text-base-content" data-theme="light">
+<body class="p-6 bg-base-100 text-base-content" data-theme="bumblebee">
   <div class="max-w-6xl mx-auto">
-    <div class="flex items-center justify-between mb-4">
-      <div>
-        <h1 class="text-xl font-semibold">Lab Trends</h1>
-        <div id="patient" class="text-sm text-gray-500"></div>
+    <div class="mb-4 flex flex-wrap items-center gap-3">
+      <div class="text-xl font-semibold">
+        Lab Trends &mdash; <span id="patient" class="text-md text-gray-500"></span>
+        <span id="status" class="text-xs text-gray-400">(Waiting for data…)</span>
       </div>
-      <button id="refresh" class="btn btn-sm btn-outline">Refresh</button>
+      <div class="flex items-center gap-2">
+        <button id="panelCbc" class="btn btn-xs">CBC</button>
+        <button id="panelChem" class="btn btn-xs">Chem</button>
+        <button id="panelUa" class="btn btn-xs">UA</button>
+        <span id="panelsFound" class="text-xs text-gray-500"></span>
+      </div>
     </div>
-
-    <div id="status" class="text-sm text-gray-500 mb-4">Waiting for data…</div>
-    <div id="panels" class="space-y-8"></div>
+    <div id="panels" class="relative"></div>
   </div>
 
   <script type="module" src="/trends/trends.js"></script>

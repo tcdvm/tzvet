@@ -1,10 +1,13 @@
 @import "tailwindcss";
 
 @plugin "daisyui" {
-  themes: "bumblebee"
+  themes: "bumblebee";
 }
 
-;
+/* Ensure zebra rows are visible inside card backgrounds. */
+/* .table-zebra tbody tr:nth-child(even) td {
+  background-color: color-mix(in oklab, var(--color-base-100) 70%, var(--color-base-300) 30%);
+} */
 
 body {
   font-family: system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
