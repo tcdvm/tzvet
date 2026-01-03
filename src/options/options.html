@@ -1,20 +1,35 @@
 <!doctype html>
-<html>
+<html data-theme="bumblebee">
   <head>
     <meta charset="utf-8" />
     <title>Extension Options</title>
     <link rel="stylesheet" href="../styles.css">
   </head>
-  <body>
-    <div class="options">
-      <h2>Options</h2>
-      <label>
-        Favorite color:
-        <input id="color" type="color" />
-      </label>
-      <button id="save">Save</button>
-      <p id="status"></p>
-    </div>
+  <body class="bg-base-100 text-base-content">
+    <main class="mx-auto max-w-2xl p-4">
+      <div class="card bg-base-200 shadow-sm">
+        <div class="card-body">
+          <h2 class="card-title text-lg">Options</h2>
+          <div class="mt-3">
+            <label class="label" for="disablePanels">
+              <span class="label-text">Disable trends for panels (one per line, exact match):</span>
+            </label>
+            <p class="text-xs text-gray-500 mb-1">Examples: CBC, Chemistry, Urinalysis, UA</p>
+            <textarea id="disablePanels" rows="4" class="textarea textarea-bordered w-full"></textarea>
+          </div>
+          <div class="mt-3">
+            <label class="label" for="disableTests">
+              <span class="label-text">Disable trends for tests (one per line, exact match):</span>
+            </label>
+            <textarea id="disableTests" rows="6" class="textarea textarea-bordered w-full"></textarea>
+          </div>
+          <div class="mt-4 flex items-center gap-2">
+            <button id="save" class="btn btn-primary btn-sm">Save</button>
+            <span id="status" class="text-sm text-gray-500"></span>
+          </div>
+        </div>
+      </div>
+    </main>
     <script type="module" src="options.js"></script>
   </body>
 </html>

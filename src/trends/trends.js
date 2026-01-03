@@ -15,6 +15,50 @@ let panelSections = new Map();
 let activePanel = null;
 let lastObservations = [];
 const refDateByPanel = new Map();
+let trendSettings = { disablePanels: new Set(), disableTests: new Set() };
+
+function normalizeKey(value) {
+  return String(value || '')
+    .replace(/[“”"'`]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function normalizePanelKey(value) {
+  const key = normalizeKey(value);
+  if (!key) return '';
+  if (key === 'ua') return 'urinalysis';
+  if (key.includes('urinalysis') || key.includes('urine analysis')) return 'urinalysis';
+  if (key.includes('chem')) return 'chemistry';
+  if (key.includes('cbc')) return 'cbc';
+  return key;
+}
+
+function normalizeTestKey(value) {
+  return normalizeKey(value);
+}
+
+async function loadTrendSettings() {
+  const items = await chrome.storage.sync.get({
+    trendsDisablePanels: [],
+    trendsDisableTests: []
+  });
+  const panelList = Array.isArray(items.trendsDisablePanels) ? items.trendsDisablePanels : [];
+  const testList = Array.isArray(items.trendsDisableTests) ? items.trendsDisableTests : [];
+  trendSettings = {
+    disablePanels: new Set(panelList.map((v) => normalizePanelKey(v)).filter(Boolean)),
+    disableTests: new Set(testList.map((v) => normalizeTestKey(v)).filter(Boolean))
+  };
+}
+
+function isTrendDisabled(panelName, testName) {
+  const panelKey = normalizePanelKey(panelName);
+  const testKey = normalizeTestKey(testName);
+  if (trendSettings.disablePanels.has(panelKey)) return true;
+  if (trendSettings.disableTests.has(testKey)) return true;
+  return false;
+}
 
 function asDateKey(iso) {
   if (!iso) return 'Unknown';
@@ -84,6 +128,55 @@ function escapeHtml(value) {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
+}
+
+function buildSparkline(values, refLow, refHigh) {
+  const width = 90;
+  const height = 24;
+  const padding = 2;
+  const points = values
+    .map((v, idx) => ({ x: idx, y: parseNumber(v) }))
+    .filter((p) => Number.isFinite(p.y));
+  if (points.length < 2) return '';
+
+  const refLowNum = parseNumber(refLow);
+  const refHighNum = parseNumber(refHigh);
+  const dataMin = Math.min(...points.map((p) => p.y));
+  const dataMax = Math.max(...points.map((p) => p.y));
+  let min = dataMin;
+  let max = dataMax;
+  if (Number.isFinite(refLowNum)) min = Math.min(min, refLowNum);
+  if (Number.isFinite(refHighNum)) max = Math.max(max, refHighNum);
+  if (min === max) {
+    min -= 1;
+    max += 1;
+  }
+
+  const xStep = points.length > 1 ? (width - padding * 2) / (points.length - 1) : 0;
+  const toY = (val) => {
+    const t = (val - min) / (max - min);
+    return height - padding - t * (height - padding * 2);
+  };
+
+  const linePoints = points
+    .map((p, i) => `${padding + i * xStep},${toY(p.y).toFixed(2)}`)
+    .join(' ');
+
+  let refBand = '';
+  if (Number.isFinite(refLowNum) && Number.isFinite(refHighNum)) {
+    const yTop = toY(refHighNum);
+    const yBottom = toY(refLowNum);
+    const bandY = Math.min(yTop, yBottom);
+    const bandH = Math.abs(yBottom - yTop);
+    refBand = `<rect x="${padding}" y="${bandY.toFixed(2)}" width="${(width - padding * 2).toFixed(2)}" height="${bandH.toFixed(2)}" fill="rgba(148,163,184,0.35)"/>`;
+  }
+
+  return `
+    <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" aria-hidden="true">
+      ${refBand}
+      <polyline fill="none" stroke="currentColor" stroke-width="1.5" points="${linePoints}" />
+    </svg>
+  `.trim();
 }
 
 function getTestUnit(observations) {
@@ -170,6 +263,8 @@ function buildPanelTables(observations) {
       byTest.get(testKey).get(dateKey).push(o);
     });
     const hasAnyRef = panelObs.some((o) => o.lowestValue || o.highestValue);
+    const showTrendColumn = !isTrendDisabled(panelName, null)
+      && Array.from(byTest.keys()).some((name) => !isTrendDisabled(panelName, name));
 
     const section = document.createElement('section');
     section.className = 'card bg-base-200 shadow-sm w-full';
@@ -215,6 +310,7 @@ function buildPanelTables(observations) {
     testTh.appendChild(testHeader);
     testTh.appendChild(refRow);
     headRow.appendChild(testTh);
+
     dates.forEach((d) => {
       const th = document.createElement('th');
       th.className = 'w-24';
@@ -226,6 +322,12 @@ function buildPanelTables(observations) {
       th.appendChild(span);
       headRow.appendChild(th);
     });
+    if (showTrendColumn) {
+      const trendTh = document.createElement('th');
+      trendTh.className = 'w-28';
+      trendTh.textContent = 'Trend';
+      headRow.appendChild(trendTh);
+    }
     thead.appendChild(headRow);
     table.appendChild(thead);
 
@@ -256,6 +358,19 @@ function buildPanelTables(observations) {
         td.innerHTML = formatCell(obsList, ref?.low, ref?.high);
         row.appendChild(td);
       });
+
+      if (showTrendColumn) {
+        const trendTd = document.createElement('td');
+        trendTd.className = 'text-slate-500';
+        if (!isTrendDisabled(panelName, testName)) {
+          const series = dates.map((d) => {
+            const obsList = byTest.get(testName).get(d) || [];
+            return obsList.length ? obsList[0].valueRaw : null;
+          });
+          trendTd.innerHTML = buildSparkline(series, ref?.low, ref?.high);
+        }
+        row.appendChild(trendTd);
+      }
       tbody.appendChild(row);
     });
     table.appendChild(tbody);
@@ -290,6 +405,7 @@ async function loadFromSession() {
     patientEl.textContent = `"${animal}" ${owner}`;
   }
   statusEl.textContent = '';
+  await loadTrendSettings();
   buildPanelTables(payload.observations);
 }
 
@@ -340,6 +456,16 @@ document.addEventListener('keydown', (e) => {
   const idx = Math.max(0, available.indexOf(activePanel));
   const nextIdx = e.key === 'ArrowLeft' ? Math.max(0, idx - 1) : Math.min(available.length - 1, idx + 1);
   setActivePanel(available[nextIdx]);
+});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'sync') return;
+  if (!changes.trendsDisablePanels && !changes.trendsDisableTests) return;
+  loadTrendSettings().then(() => {
+    if (!lastObservations.length) return;
+    buildPanelTables(lastObservations);
+    setActivePanel(activePanel);
+  });
 });
 
 loadFromSession();
