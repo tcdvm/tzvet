@@ -48,6 +48,24 @@ button {
   margin-bottom: 8px
 }
 
+.cell-truncate {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: normal;
+  line-height: 1.25;
+}
+
+.cell-modal {
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: color-mix(in oklab, var(--color-base-content) 35%, transparent);
+  text-underline-offset: 2px;
+}
+
 /* Responsive: allow narrower windows on very small screens */
 @media (max-width:420px) {
   .sidepanel {

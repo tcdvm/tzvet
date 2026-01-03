@@ -140,13 +140,16 @@ function normalizePanelName(panel) {
   return name;
 }
 
-function normalizeTestName(testName) {
+function normalizeTestName(testName, panelName) {
   if (!testName) return testName;
   let name = String(testName)
     .replace(/\s*:\s*Value\s*$/i, '')
     .replace(/^\s*after hours\s+/i, '')
     .trim();
   name = name.replace(/\s+/g, ' ');
+  if (/^value$/i.test(name) && panelName) {
+    name = String(panelName).replace(/\s*\([^)]*\)\s*$/, '').trim();
+  }
   // Strip trailing units accidentally embedded in the test name.
   name = name.replace(/\s*\([^)]*(mg\/dL|g\/dL|U\/L|mmol\/L|ug\/dL|%|fL|pg|K\/uL|M\/uL)[^)]*\)\s*$/i, '').trim();
   const map = {
@@ -203,7 +206,6 @@ function buildObservations(rows) {
   rows.forEach((row) => {
     const originalPanel = row.meta?.panel || null;
     const panel = normalizePanelName(originalPanel);
-    if (!isTargetPanel(panel)) return;
     let lastObservation = null;
     row.nestedTableMatrix.forEach((cells) => {
       const cleaned = cells.map((c) => c.trim());
@@ -222,6 +224,7 @@ function buildObservations(rows) {
 
       const base = parseObservationRow(cleaned);
       if (!base) return;
+      base.testName = normalizeTestName(base.testName, originalPanel || panel);
 
       const obs = {
         panel,
@@ -264,7 +267,7 @@ export function extractLabTrends() {
     });
   });
 
-  const panelRows = rows.filter((row) => isTargetPanel(row.meta?.panel));
+  const panelRows = rows.filter((row) => row.meta?.panel);
   const observations = buildObservations(panelRows);
 
   return {

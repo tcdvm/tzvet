@@ -3,11 +3,13 @@ import '../styles.css';
 const statusEl = document.getElementById('status');
 const panelsEl = document.getElementById('panels');
 const patientEl = document.getElementById('patient');
-const panelsFoundEl = document.getElementById('panelsFound');
+const resultModal = document.getElementById('resultModal');
+const resultModalContent = document.getElementById('resultModalContent');
 const panelButtons = {
   CBC: document.getElementById('panelCbc'),
   Chemistry: document.getElementById('panelChem'),
-  Urinalysis: document.getElementById('panelUa')
+  Urinalysis: document.getElementById('panelUa'),
+  Other: document.getElementById('panelOther')
 };
 
 let panelOrder = [];
@@ -16,6 +18,13 @@ let activePanel = null;
 let lastObservations = [];
 const refDateByPanel = new Map();
 let trendSettings = { disablePanels: new Set(), disableTests: new Set() };
+const TRUNCATE_LENGTH = 100;
+
+function openResultModal(text) {
+  if (!resultModal || !resultModalContent) return;
+  resultModalContent.textContent = text;
+  resultModal.showModal();
+}
 
 function normalizeKey(value) {
   return String(value || '')
@@ -58,6 +67,16 @@ function isTrendDisabled(panelName, testName) {
   if (trendSettings.disablePanels.has(panelKey)) return true;
   if (trendSettings.disableTests.has(testKey)) return true;
   return false;
+}
+
+function normalizePanelName(panelName) {
+  const key = normalizePanelKey(panelName);
+  if (['cbc', 'chemistry', 'urinalysis'].includes(key)) {
+    if (key === 'cbc') return 'CBC';
+    if (key === 'chemistry') return 'Chemistry';
+    return 'Urinalysis';
+  }
+  return 'Other';
 }
 
 function asDateKey(iso) {
@@ -220,18 +239,18 @@ function buildPanelTables(observations) {
   const panels = new Map();
   observations.forEach((obs) => {
     if (!obs.panel || !obs.testName) return;
-    if (!panels.has(obs.panel)) panels.set(obs.panel, []);
-    panels.get(obs.panel).push(obs);
+    const panelName = normalizePanelName(obs.panel);
+    if (!panels.has(panelName)) panels.set(panelName, []);
+    panels.get(panelName).push(obs);
   });
 
   if (!panels.size) {
     statusEl.textContent = 'No panel data found.';
-    if (panelsFoundEl) panelsFoundEl.textContent = '';
     return;
   }
 
   statusEl.textContent = '';
-  panelOrder = ['CBC', 'Chemistry', 'Urinalysis', 'UA'];
+  panelOrder = ['CBC', 'Chemistry', 'Urinalysis', 'UA', 'Other'];
   const sortedPanels = Array.from(panels.entries()).sort((a, b) => {
     const aIdx = panelOrder.indexOf(a[0]);
     const bIdx = panelOrder.indexOf(b[0]);
@@ -240,8 +259,6 @@ function buildPanelTables(observations) {
     if (aRank !== bRank) return aRank - bRank;
     return a[0].localeCompare(b[0]);
   });
-  if (panelsFoundEl) panelsFoundEl.textContent = `(${sortedPanels.length} panels)`;
-
   for (const [panelName, panelObs] of sortedPanels) {
     const dateSet = new Set(panelObs.map((o) => asDateKey(o.collectedAt)));
     const dates = sortDateKeys(dateSet);
@@ -265,9 +282,21 @@ function buildPanelTables(observations) {
       byTest.get(testKey).get(dateKey).push(o);
     });
     const hasAnyRef = refDates.length > 0;
-    const showTrendColumn = refDates.length > 1
+    const hasTrendData = Array.from(byTest.entries()).some(([name, byDate]) => {
+      if (isTrendDisabled(panelName, name)) return false;
+      const values = dates
+        .map((d) => {
+          const obsList = byDate.get(d) || [];
+          return obsList.length ? obsList[0].valueRaw : null;
+        })
+        .filter((v) => v !== null && v !== undefined)
+        .map((v) => parseNumber(v))
+        .filter((n) => Number.isFinite(n));
+      return values.length >= 2;
+    });
+    const showTrendColumn = dates.length > 1
       && !isTrendDisabled(panelName, null)
-      && Array.from(byTest.keys()).some((name) => !isTrendDisabled(panelName, name));
+      && hasTrendData;
 
     const section = document.createElement('section');
     section.className = 'card bg-base-200 shadow-sm w-full';
@@ -330,7 +359,7 @@ function buildPanelTables(observations) {
     if (showTrendColumn) {
       const trendTh = document.createElement('th');
       trendTh.className = 'w-28';
-      trendTh.textContent = 'Trend';
+      trendTh.textContent = 'Trendline';
       headRow.appendChild(trendTh);
     }
     thead.appendChild(headRow);
@@ -361,6 +390,17 @@ function buildPanelTables(observations) {
         const td = document.createElement('td');
         const obsList = byTest.get(testName).get(d) || [];
         td.innerHTML = formatCell(obsList, ref?.low, ref?.high);
+        const cellText = td.textContent.trim();
+        if (cellText.length > TRUNCATE_LENGTH) {
+          const wrap = document.createElement('span');
+          wrap.className = 'cell-truncate cell-modal';
+          wrap.innerHTML = td.innerHTML;
+          td.innerHTML = '';
+          td.appendChild(wrap);
+          td.classList.add('cursor-pointer');
+          td.title = 'Click to view full result';
+          td.addEventListener('click', () => openResultModal(cellText));
+        }
         row.appendChild(td);
       });
 
