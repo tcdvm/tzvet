@@ -229,6 +229,22 @@ function formatRangeText(ref) {
   return `${low}${low && high ? '-' : ''}${high}`;
 }
 
+function getPreferredTestOrder(panelObs) {
+  const orderByPanel = new Map();
+  panelObs.forEach((obs) => {
+    const key = obs.originalPanel || obs.panel || '';
+    if (!key || !obs.testName) return;
+    if (!orderByPanel.has(key)) orderByPanel.set(key, []);
+    const list = orderByPanel.get(key);
+    if (!list.includes(obs.testName)) list.push(obs.testName);
+  });
+  let best = [];
+  for (const [, list] of orderByPanel.entries()) {
+    if (list.length > best.length) best = list;
+  }
+  return best;
+}
+
 function buildPanelTables(observations) {
   lastObservations = observations;
   if (panelsEl) {
@@ -366,7 +382,21 @@ function buildPanelTables(observations) {
     table.appendChild(thead);
 
     const tbody = document.createElement('tbody');
-    const testNames = Array.from(byTest.keys());
+    let testNames = Array.from(byTest.keys());
+    if (panelName === 'Chemistry') {
+      const preferredOrder = getPreferredTestOrder(panelObs);
+      if (preferredOrder.length) {
+        const orderMap = new Map(preferredOrder.map((name, idx) => [name, idx]));
+        testNames = testNames
+          .map((name, idx) => ({
+            name,
+            idx,
+            rank: orderMap.has(name) ? orderMap.get(name) : Number.MAX_SAFE_INTEGER
+          }))
+          .sort((a, b) => (a.rank - b.rank) || (a.idx - b.idx))
+          .map((item) => item.name);
+      }
+    }
     testNames.forEach((testName) => {
       const row = document.createElement('tr');
       const nameTd = document.createElement('td');

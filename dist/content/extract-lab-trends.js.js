@@ -178,12 +178,20 @@ function isHeaderRow(nonEmptyCells) {
 function parseObservationRow(cells) {
   if (!cells.length) return null;
 
+  const cleanValueText = (value) => {
+    if (!value) return value;
+    return String(value)
+      .replace(/\.pdf/gi, '')
+      .replace(/\(click this!\)|click this!/gi, '(See ezyVet for pdf.)')
+      .trim();
+  };
+
   let testName = normalizeTestName(cells[0] || null);
-  const valueRaw = cells[1] || null;
+  const valueRaw = cleanValueText(cells[1] || null);
   const unit = cells[2] || null;
   const lowestValue = cells[3] || null;
   const highestValue = cells[4] || null;
-  const qualifier = cells[5] || null;
+  const qualifier = cleanValueText(cells[5] || null);
 
   if (!testName) return null;
   testName = testName.replace(/\s*:\s*Value\s*$/i, '');
