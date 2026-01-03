@@ -245,7 +245,9 @@ function buildPanelTables(observations) {
   for (const [panelName, panelObs] of sortedPanels) {
     const dateSet = new Set(panelObs.map((o) => asDateKey(o.collectedAt)));
     const dates = sortDateKeys(dateSet);
-    const selectedRefDate = refDateByPanel.get(panelName) || (dates.length ? dates[dates.length - 1] : 'Unknown');
+    const refDates = dates.filter((d) => panelObs.some((o) => asDateKey(o.collectedAt) === d && (o.lowestValue || o.highestValue)));
+    const defaultRefDate = refDates.length ? refDates[refDates.length - 1] : (dates.length ? dates[dates.length - 1] : 'Unknown');
+    const selectedRefDate = refDateByPanel.get(panelName) || defaultRefDate;
     const originalPanelByDate = new Map();
     panelObs.forEach((obs) => {
       const dateKey = asDateKey(obs.collectedAt);
@@ -262,8 +264,9 @@ function buildPanelTables(observations) {
       if (!byTest.get(testKey).has(dateKey)) byTest.get(testKey).set(dateKey, []);
       byTest.get(testKey).get(dateKey).push(o);
     });
-    const hasAnyRef = panelObs.some((o) => o.lowestValue || o.highestValue);
-    const showTrendColumn = !isTrendDisabled(panelName, null)
+    const hasAnyRef = refDates.length > 0;
+    const showTrendColumn = refDates.length > 1
+      && !isTrendDisabled(panelName, null)
       && Array.from(byTest.keys()).some((name) => !isTrendDisabled(panelName, name));
 
     const section = document.createElement('section');
@@ -289,11 +292,13 @@ function buildPanelTables(observations) {
     refRow.className = 'text-[11px] text-gray-400 flex items-center gap-1';
     const refLabel = document.createElement('span');
     refLabel.textContent = 'Ref range';
+    refLabel.className = 'underline underline-offset-2 decoration-dotted decoration-1 text-gray-400 cursor-help';
+    refLabel.title = "Reference ranges can be 'iffy' at times from ezyVet. Confirm strange looking ranges from the source or switch to a different date (if available).";
     refRow.appendChild(refLabel);
-    if (hasAnyRef) {
+    if (refDates.length > 1) {
       const refSelect = document.createElement('select');
       refSelect.className = 'select select-xs max-w-28';
-      dates.forEach((d) => {
+      refDates.forEach((d) => {
         const opt = document.createElement('option');
         opt.value = d;
         opt.textContent = formatDateLabel(d, true);
@@ -315,7 +320,7 @@ function buildPanelTables(observations) {
       const th = document.createElement('th');
       th.className = 'w-24';
       const span = document.createElement('span');
-      span.className = 'cursor-pointer';
+      span.className = 'cursor-help underline underline-offset-2 decoration-dotted decoration-1 text-gray-500';
       const tip = originalPanelByDate.get(d) || panelName;
       span.title = tip;
       span.textContent = formatDateLabel(d);
