@@ -1,4 +1,10 @@
 const ALLOWED_ORIGIN = 'https://utcvm.use1.ezyvet.com';
+const DEFAULT_TRENDS_DISABLE_PANELS = ['Urinalysis', 'Urinalalysis'];
+const DEFAULT_TRENDS_DISABLE_TESTS = [
+  'Lipemic Serum Index',
+  'Hemolytic Serum Index',
+  'Icteric Serum Index'
+];
 
 function isAllowedUrl(url) {
   try {
@@ -44,6 +50,24 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
   else chrome.action.disable(tab.id);
 });
 
+async function ensureDefaultTrendSettings() {
+  try {
+    const stored = await chrome.storage.sync.get(['trendsDisablePanels', 'trendsDisableTests']);
+    const nextPanels = Array.isArray(stored.trendsDisablePanels) && stored.trendsDisablePanels.length
+      ? stored.trendsDisablePanels
+      : DEFAULT_TRENDS_DISABLE_PANELS;
+    const nextTests = Array.isArray(stored.trendsDisableTests) && stored.trendsDisableTests.length
+      ? stored.trendsDisableTests
+      : DEFAULT_TRENDS_DISABLE_TESTS;
+    await chrome.storage.sync.set({
+      trendsDisablePanels: nextPanels,
+      trendsDisableTests: nextTests
+    });
+  } catch (e) {
+    console.warn('Failed to set default trends options:', e);
+  }
+}
+
 // On install, enforce across open tabs
 chrome.runtime.onInstalled.addListener(async () => {
   const tabs = await chrome.tabs.query({});
@@ -66,6 +90,7 @@ chrome.runtime.onInstalled.addListener(async () => {
   } catch (e) {
     console.warn('Failed to set side panel behavior:', e);
   }
+  await ensureDefaultTrendSettings();
 });
 
 chrome.runtime.onStartup.addListener(async () => {
@@ -74,6 +99,7 @@ chrome.runtime.onStartup.addListener(async () => {
   } catch (e) {
     console.warn('Failed to set side panel behavior on startup:', e);
   }
+  await ensureDefaultTrendSettings();
 });
 
 chrome.action.onClicked.addListener(async (tab) => {

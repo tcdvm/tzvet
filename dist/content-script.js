@@ -128,6 +128,7 @@ function normalizePanelName(panel) {
   if (/^canine panel and electrolytes$/i.test(name)) return 'Chemistry';
   if (/^after hours sa general chemistry panel$/i.test(name)) return 'Chemistry';
   if (/chemistry|general chemistry|electrolyte/i.test(name)) return 'Chemistry';
+  if (/renal panel/i.test(name)) return 'Chemistry';
 
   if (/urinalysis|urine analysis/i.test(name)) return 'Urinalysis';
   if (/animal.*panel/i.test(name)) return 'Chemistry';
@@ -135,10 +136,16 @@ function normalizePanelName(panel) {
   return name;
 }
 
-function normalizeTestName(testName) {
+function normalizeTestName(testName, panelName) {
   if (!testName) return testName;
-  let name = String(testName).replace(/^\s*after hours\s+/i, '').trim();
+  let name = String(testName)
+    .replace(/\s*:\s*Value\s*$/i, '')
+    .replace(/^\s*after hours\s+/i, '')
+    .trim();
   name = name.replace(/\s+/g, ' ');
+  if (/^value$/i.test(name) && panelName) {
+    name = String(panelName).replace(/\s*\([^)]*\)\s*$/, '').trim();
+  }
   // Strip trailing units accidentally embedded in the test name.
   name = name.replace(/\s*\([^)]*(mg\/dL|g\/dL|U\/L|mmol\/L|ug\/dL|%|fL|pg|K\/uL|M\/uL)[^)]*\)\s*$/i, '').trim();
   const map = {
@@ -153,12 +160,6 @@ function normalizeTestName(testName) {
   return name;
 }
 
-function isTargetPanel(panel) {
-  if (!panel) return false;
-  const name = normalizePanelName(panel);
-  return /^(CBC|Chemistry|Urinalysis)$/i.test(name);
-}
-
 function isHeaderRow(nonEmptyCells) {
   const joined = nonEmptyCells.join(' ').toLowerCase();
   return /(test|resuts|unit|lowest value|highest value|qualifier)/.test(joined);
@@ -167,12 +168,20 @@ function isHeaderRow(nonEmptyCells) {
 function parseObservationRow(cells) {
   if (!cells.length) return null;
 
+  const cleanValueText = (value) => {
+    if (!value) return value;
+    return String(value)
+      .replace(/\.pdf/gi, '')
+      .replace(/\(click this!\)|click this!/gi, '(See ezyVet for pdf.)')
+      .trim();
+  };
+
   let testName = normalizeTestName(cells[0] || null);
-  const valueRaw = cells[1] || null;
+  const valueRaw = cleanValueText(cells[1] || null);
   const unit = cells[2] || null;
   const lowestValue = cells[3] || null;
   const highestValue = cells[4] || null;
-  const qualifier = cells[5] || null;
+  const qualifier = cleanValueText(cells[5] || null);
 
   if (!testName) return null;
   testName = testName.replace(/\s*:\s*Value\s*$/i, '');
@@ -193,8 +202,8 @@ function parseObservationRow(cells) {
 function buildObservations(rows) {
   const observations = [];
   rows.forEach((row) => {
-    const panel = normalizePanelName(row.meta?.panel || null);
-    if (!isTargetPanel(panel)) return;
+    const originalPanel = row.meta?.panel || null;
+    const panel = normalizePanelName(originalPanel);
     let lastObservation = null;
     row.nestedTableMatrix.forEach((cells) => {
       const cleaned = cells.map((c) => c.trim());
@@ -213,9 +222,11 @@ function buildObservations(rows) {
 
       const base = parseObservationRow(cleaned);
       if (!base) return;
+      base.testName = normalizeTestName(base.testName, originalPanel || panel);
 
       const obs = {
         panel,
+        originalPanel,
         collectedAt: row.meta?.sampleDate || null,
         reference: row.meta?.reference || null,
         species: row.meta?.species || [],
@@ -254,7 +265,7 @@ function extractLabTrends() {
     });
   });
 
-  const panelRows = rows.filter((row) => isTargetPanel(row.meta?.panel));
+  const panelRows = rows.filter((row) => row.meta?.panel);
   const observations = buildObservations(panelRows);
 
   return {
