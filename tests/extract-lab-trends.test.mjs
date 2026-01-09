@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { parseRowTextForTest } from '../src/content/extract-lab-trends.js';
+import { parseRowTextForTest } from '../src/trends/extract-lab-trends.js';
 
 const cases = [
   {

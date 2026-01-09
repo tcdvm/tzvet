@@ -3,11 +3,35 @@ import '../styles.css';
 // ---- Normalize species labels UI ----
 const normalizeCheckbox = document.getElementById('normalize');
 const status = document.getElementById('status');
+const defaultStatusText = 'Please verify any and all data processed by this extension.';
+const readyStatusText = 'Ready';
 
 const extractBtn = document.getElementById('extractLabTrends');
 const storedTrendsEl = document.getElementById('storedTrends');
 const clearTrendsBtn = document.getElementById('clearTrends');
 const autoOpenTrends = document.getElementById('autoOpenTrends');
+
+const tabTools = document.getElementById('tabTools');
+const tabHowtos = document.getElementById('tabHowtos');
+const tabButtons = document.querySelectorAll('[data-tab]');
+if (tabButtons.length) {
+  tabButtons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const name = btn.dataset.tab;
+      tabButtons.forEach((el) => el.classList.remove('tab-active'));
+      btn.classList.add('tab-active');
+      if (tabTools) tabTools.classList.toggle('hidden', name !== 'tools');
+      if (tabHowtos) tabHowtos.classList.toggle('hidden', name !== 'howtos');
+      if (location.hash !== `#${name}`) {
+        history.replaceState(null, '', `#${name}`);
+      }
+    });
+  });
+}
+
+const initialTab = location.hash === '#howtos' ? 'howtos' : 'tools';
+const activeBtn = Array.from(tabButtons).find((btn) => btn.dataset.tab === initialTab);
+if (activeBtn) activeBtn.click();
 if (extractBtn) {
   extractBtn.addEventListener('click', async () => {
     status.textContent = 'Extracting lab trends...';
@@ -63,6 +87,13 @@ if (extractBtn) {
   });
 }
 
+if (status) {
+  status.textContent = defaultStatusText;
+  setTimeout(() => {
+    if (status.textContent === defaultStatusText) status.textContent = readyStatusText;
+  }, 4000);
+}
+
 // load saved settings
 chrome.storage.sync.get({ normalizeSpecies: false, headerHidden: false, qtipPlaceholder: false }, (items) => {
   normalizeCheckbox.checked = items.normalizeSpecies;
@@ -73,7 +104,7 @@ chrome.storage.sync.get({ normalizeSpecies: false, headerHidden: false, qtipPlac
 });
 
 chrome.storage.sync.get({ autoOpenTrends: true }, (items) => {
-if (autoOpenTrends) autoOpenTrends.checked = items.autoOpenTrends;
+  if (autoOpenTrends) autoOpenTrends.checked = items.autoOpenTrends;
 });
 
 if (autoOpenTrends) {

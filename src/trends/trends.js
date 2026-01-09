@@ -18,7 +18,7 @@ let activePanel = null;
 let lastObservations = [];
 const refDateByPanel = new Map();
 let trendSettings = { disablePanels: new Set(), disableTests: new Set() };
-const TRUNCATE_LENGTH = 100;
+const TRUNCATE_LENGTH = 150;
 
 function openResultModal(text) {
   if (!resultModal || !resultModalContent) return;

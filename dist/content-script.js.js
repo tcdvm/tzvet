@@ -1,5 +1,5 @@
 // content-script.js - runs on matched pages
-import { extractLabTrends } from "/content/extract-lab-trends.js.js";
+import { extractLabTrends } from "/trends/extract-lab-trends.js.js";
 import { swLog } from "/shared/sw-log.js.js";
 
 console.log('TZVet content script loaded on', location.href);
