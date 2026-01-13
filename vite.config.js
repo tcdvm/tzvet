@@ -88,6 +88,11 @@ module.exports = defineConfig({
     rollupOptions: {
       input: {
         sidepanel: path.resolve(__dirname, 'src/sidepanel/index.html'),
+        'sidepanel/howtos/howto-food-prescription': path.resolve(__dirname, 'src/sidepanel/howtos/howto-food-prescription.html'),
+        'sidepanel/howtos/howto-cardiology-consult': path.resolve(__dirname, 'src/sidepanel/howtos/howto-cardiology-consult.html'),
+        'sidepanel/howtos/how-to-hospitalpolicies': path.resolve(__dirname, 'src/sidepanel/howtos/how-to-hospitalpolicies.html'),
+        'sidepanel/howtos/howto-lab-trends': path.resolve(__dirname, 'src/sidepanel/howtos/howto-lab-trends.html'),
+        'sidepanel/howtos/howto-ui-tweaks': path.resolve(__dirname, 'src/sidepanel/howtos/howto-ui-tweaks.html'),
         options: path.resolve(__dirname, 'src/options/options.html'),
         trends: path.resolve(__dirname, 'src/trends/index.html'),
         'content-script': path.resolve(__dirname, 'src/content-script.js'),
