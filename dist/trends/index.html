@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Lab Trends</title>
+  <script type="module" crossorigin src="/trends.js"></script>
+  <link rel="modulepreload" crossorigin href="/chunks/modulepreload-polyfill.js">
+  <link rel="stylesheet" crossorigin href="/assets/styles.css">
+</head>
+
+<body class="p-6 bg-base-100 text-base-content" data-theme="bumblebee">
+  <div class="max-w-6xl mx-auto">
+    <div class="mb-4 flex flex-wrap items-center gap-3">
+      <div class="text-xl font-semibold">
+        Lab Trends &mdash; <span id="patient" class="text-md text-gray-500"></span>
+        <span id="status" class="text-xs text-gray-400">(Waiting for data…)</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <button id="panelCbc" class="btn btn-xs">CBC</button>
+        <button id="panelChem" class="btn btn-xs">Chem</button>
+        <button id="panelUa" class="btn btn-xs">UA</button>
+        <button id="panelOther" class="btn btn-xs">Other</button>
+        <span class="text-[11px] text-gray-400">Click or use &#8592; &#8594; keys</span>
+      </div>
+    </div>
+    <div id="panels" class="relative"></div>
+  </div>
+
+  <dialog id="resultModal" class="modal">
+    <div class="modal-box max-w-2xl">
+      <h3 class="font-semibold text-lg">Full Result</h3>
+      <pre id="resultModalContent" class="mt-3 whitespace-pre-wrap text-sm"></pre>
+      <div class="modal-action">
+        <form method="dialog">
+          <button class="btn btn-sm">Close</button>
+        </form>
+      </div>
+    </div>
+  </dialog>
+
+</body>
+
+</html>

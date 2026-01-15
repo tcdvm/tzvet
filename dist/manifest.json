@@ -26,11 +26,11 @@
   ],
   "content_scripts": [
     {
+      "js": [
+        "content-script.js"
+      ],
       "matches": [
         "https://utcvm.use1.ezyvet.com/*"
-      ],
-      "js": [
-        "content-script.js-loader.js"
       ],
       "run_at": "document_idle"
     }
@@ -39,11 +39,10 @@
   "web_accessible_resources": [
     {
       "matches": [
-        "<all_urls>"
+        "https://utcvm.use1.ezyvet.com/*"
       ],
       "resources": [
-        "**/*",
-        "*"
+        "content-script.js"
       ],
       "use_dynamic_url": false
     }

@@ -1,0 +1,3 @@
+import"./chunks/modulepreload-polyfill.js";/* empty css             */const a=document.getElementById("disablePanels"),i=document.getElementById("disableTests"),s=document.getElementById("status");function n(e){return Array.isArray(e)?e.join(`
+`):typeof e=="string"?e:""}function r(e){return String(e||"").split(`
+`).map(t=>t.trim()).filter(Boolean)}chrome.storage.sync.get({trendsDisablePanels:[],trendsDisableTests:[]},e=>{a.value=n(e.trendsDisablePanels),i.value=n(e.trendsDisableTests)});document.getElementById("save").addEventListener("click",()=>{const e=r(a.value),t=r(i.value);chrome.storage.sync.set({trendsDisablePanels:e,trendsDisableTests:t},()=>{s.textContent="Saved!",setTimeout(()=>s.textContent="",1500)})});

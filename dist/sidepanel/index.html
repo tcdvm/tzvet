@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>TC ezyVet Tools</title>
+  <script type="module" crossorigin src="/sidepanel.js"></script>
+  <link rel="modulepreload" crossorigin href="/chunks/modulepreload-polyfill.js">
+  <link rel="stylesheet" crossorigin href="/assets/styles.css">
+</head>
+
+<body class="sidepanel p-4 font-sans bg-base-100 text-base-content flex flex-col" data-theme="bumblebee">
+  <main class="flex-1 space-y-4">
+    <div id="tabTools" class="space-y-4">
+      <div>
+        <h3 class="card-title">TC ezyVet Tools</h2>
+          <div class="mb-2 text-sm text-muted border-b border-base-300">
+            <div class="m-1 text-xs" id="status">Please verify any and all data processed by this extension.</div>
+          </div>
+      </div>
+      <fieldset class="fieldset bg-base-100 border-base-300 rounded-box border p-4">
+        <legend class="fieldset-legend">Lab Trends</legend>
+        <div class="fieldset-label">
+          <div class="flex items-center justify-between gap-2">
+            <button id="extractLabTrends" class="btn btn-primary btn-sm">Extract Lab Trends</button>
+            <div class="flex items-center gap-1 text-xs">
+              <input id="autoOpenTrends" type="checkbox" class="toggle toggle-primary toggle-xs" />
+              <label for="autoOpenTrends">Auto-open</label>
+            </div>
+          </div>
+        </div>
+        <div class="text-xs">
+          <details class="ml-2 mt-1" name="my-accordion-det-1">
+            <summary class="">Details on use, limitations, etc.</summary>
+            <div class="mt-1">Extract lab trends from Complete History &rarr; Diagnostic Result. If
+              there is more than one page, you will need to Extract each page and the results will be combined
+              and stored in browser (you can disable auto-open to avoid having to keep switching tabs).
+              Panels that have the same test name but with variant spelling will sometimes not
+              be aggregated correctly - inform Dr. Chen so he can map names appropriately. Chemistry sub-panels
+              may not be aggregated with the bigger chemistry panel so also let Dr. Chen know please.
+            </div>
+          </details>
+        </div>
+        <div class="mt-2 pt3">
+          <div class="flex items-center justify-between">
+            <h4 class="text-sm font-semibold">Cached Lab Trends</h4>
+            <button id="clearTrends" class="btn btn-ghost btn-xs">Clear</button>
+          </div>
+          <div id="storedTrends" class="mt-2 text-xs text-gray-600"></div>
+        </div>
+      </fieldset>
+
+      <fieldset class="fieldset bg-base-100 border-base-300 rounded-box border p-4">
+        <legend class="fieldset-legend">UI Tweaks</legend>
+        <label class="fieldset-label">
+          <input id="toggleHeader" type="checkbox" checked="checked" class="toggle toggle-primary toggle-sm" />
+          Hide top header
+        </label>
+        <label class="fieldset-label">
+          <input id="normalize" type="checkbox" checked="checked" class="toggle toggle-primary toggle-sm" />
+          Nonredundant species labels
+        </label>
+        <label class="fieldset-label">
+          <input id="toggleQtip" type="checkbox" checked="checked" class="toggle toggle-primary toggle-sm" />
+          Suppress mouseover pop-ups
+        </label>
+      </fieldset>
+    </div>
+
+    <div id="tabHowtos" class="space-y-3 hidden">
+      <div>
+        <h3 class="card-title">ezyVet How-To Guides</h2>
+          <div class="text-[11px] text-gray-500">Helpful things for using ezyVet</div>
+      </div>
+      <div class="flex flex-col gap-2 text-sm">
+        <a class="link link-neutral" href="howtos/howto-food-prescription.html">Food Prescriptions</a>
+        <a class="link link-neutral" href="howtos/howto-cardiology-consult.html">Cardiology Consult</a>
+        <a class="link link-neutral" href="howtos/how-to-hospitalpolicies.html">Required Parts of the EMR</a>
+      </div>
+    </div>
+  </main>
+
+
+  <footer class="sidepanel-footer mt-3 pt-3">
+    <div role=" tablist" class="tabs tabs-box mt-3">
+      <button role="tab" class="tab tab-active" data-tab="tools">Tools</button>
+      <button role="tab" class="tab" data-tab="howtos">How-tos</button>
+    </div>
+  </footer>
+
+</body>
+
+</html>

@@ -1,0 +1,64 @@
+{
+  "../../../../../@crx/manifest": {
+    "file": "chunks/crx-manifest.js.js",
+    "name": "crx-manifest.js",
+    "src": "../../../../../@crx/manifest",
+    "isEntry": true
+  },
+  "_modulepreload-polyfill.js": {
+    "file": "chunks/modulepreload-polyfill.js",
+    "name": "modulepreload-polyfill"
+  },
+  "_styles.js": {
+    "file": "assets/styles.css",
+    "src": "_styles.js"
+  },
+  "content-script.js": {
+    "file": "content-script.js",
+    "name": "content-script",
+    "src": "content-script.js",
+    "isEntry": true
+  },
+  "options/options.html": {
+    "file": "options.js",
+    "name": "options",
+    "src": "options/options.html",
+    "isEntry": true,
+    "imports": [
+      "_modulepreload-polyfill.js"
+    ],
+    "css": [
+      "assets/styles.css"
+    ]
+  },
+  "service-worker.js": {
+    "file": "service-worker.js",
+    "name": "service-worker",
+    "src": "service-worker.js",
+    "isEntry": true
+  },
+  "sidepanel/index.html": {
+    "file": "sidepanel.js",
+    "name": "sidepanel",
+    "src": "sidepanel/index.html",
+    "isEntry": true,
+    "imports": [
+      "_modulepreload-polyfill.js"
+    ],
+    "css": [
+      "assets/styles.css"
+    ]
+  },
+  "trends/index.html": {
+    "file": "trends.js",
+    "name": "trends",
+    "src": "trends/index.html",
+    "isEntry": true,
+    "imports": [
+      "_modulepreload-polyfill.js"
+    ],
+    "css": [
+      "assets/styles.css"
+    ]
+  }
+}
