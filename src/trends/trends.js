@@ -26,6 +26,11 @@ function openResultModal(text) {
   resultModal.showModal();
 }
 
+function formatPaginationWarning(pagination) {
+  if (!pagination || !pagination.hasMore) return '';
+  return `Possible missing labs: page ${pagination.current} of ${pagination.total}. Load additional pages or increase items/page.`;
+}
+
 function normalizeKey(value) {
   return String(value || '')
     .replace(/[“”"'`]/g, '')
@@ -81,6 +86,7 @@ function normalizePanelName(panelName) {
 
 function asDateKey(iso) {
   if (!iso) return 'Unknown';
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(iso)) return iso;
   if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return 'Unknown';
@@ -90,8 +96,27 @@ function asDateKey(iso) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-function formatDateLabel(dateKey, short = false) {
+function formatDateLabel(dateKey, options = false) {
+  const opts = typeof options === 'boolean' ? { short: options } : options || {};
+  const short = !!opts.short;
+  const showTime = !!opts.showTime;
+  const showMinutes = opts.showMinutes !== false;
   if (dateKey === 'Unknown') return 'Unknown';
+  const parsed = dateKey.includes('T') ? new Date(dateKey) : null;
+  if (parsed && !Number.isNaN(parsed.getTime())) {
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const hours = parsed.getHours();
+    const minutes = String(parsed.getMinutes()).padStart(2, '0');
+    const period = hours >= 12 ? 'PM' : 'AM';
+    const displayHour = hours % 12 || 12;
+    const dateText = `${monthNames[parsed.getMonth()]} ${parsed.getDate()}, ${parsed.getFullYear()}`;
+    if (!showTime) {
+      return short ? `${monthNames[parsed.getMonth()]} ${parsed.getDate()}` : dateText;
+    }
+    const timeText = showMinutes ? `${displayHour}:${minutes} ${period}` : `${displayHour} ${period}`;
+    if (short) return `${monthNames[parsed.getMonth()]} ${parsed.getDate()} ${timeText}`;
+    return `${dateText} ${timeText}`;
+  }
   const parts = dateKey.split('-').map((p) => Number(p));
   if (parts.length !== 3 || parts.some((n) => Number.isNaN(n))) return 'Unknown';
   const [year, month, day] = parts;
@@ -102,10 +127,21 @@ function formatDateLabel(dateKey, short = false) {
   return `${monthNames[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
 }
 
+function getDayKey(dateKey) {
+  if (!dateKey || dateKey === 'Unknown') return 'Unknown';
+  if (dateKey.includes('T')) return dateKey.split('T')[0];
+  return dateKey;
+}
+
 function sortDateKeys(keys) {
   return [...keys].sort((a, b) => {
     if (a === 'Unknown') return 1;
     if (b === 'Unknown') return -1;
+    const da = new Date(a);
+    const db = new Date(b);
+    if (!Number.isNaN(da.getTime()) && !Number.isNaN(db.getTime())) {
+      return da.getTime() - db.getTime();
+    }
     return a.localeCompare(b);
   });
 }
@@ -265,7 +301,6 @@ function buildPanelTables(observations) {
     return;
   }
 
-  statusEl.textContent = '';
   panelOrder = ['CBC', 'Chemistry', 'Urinalysis', 'UA', 'Other'];
   const sortedPanels = Array.from(panels.entries()).sort((a, b) => {
     const aIdx = panelOrder.indexOf(a[0]);
@@ -278,6 +313,11 @@ function buildPanelTables(observations) {
   for (const [panelName, panelObs] of sortedPanels) {
     const dateSet = new Set(panelObs.map((o) => asDateKey(o.collectedAt)));
     const dates = sortDateKeys(dateSet);
+    const dayCounts = new Map();
+    dates.forEach((d) => {
+      const dayKey = getDayKey(d);
+      dayCounts.set(dayKey, (dayCounts.get(dayKey) || 0) + 1);
+    });
     const refDates = dates.filter((d) => panelObs.some((o) => asDateKey(o.collectedAt) === d && (o.lowestValue || o.highestValue)));
     const defaultRefDate = refDates.length ? refDates[refDates.length - 1] : (dates.length ? dates[dates.length - 1] : 'Unknown');
     const selectedRefDate = refDateByPanel.get(panelName) || defaultRefDate;
@@ -330,7 +370,7 @@ function buildPanelTables(observations) {
     const thead = document.createElement('thead');
     const headRow = document.createElement('tr');
     const testTh = document.createElement('th');
-    testTh.className = 'w-44';
+    testTh.className = 'w-44 sticky-col sticky-col-header';
     const testHeader = document.createElement('div');
     testHeader.textContent = 'Test';
     const refRow = document.createElement('div');
@@ -346,7 +386,7 @@ function buildPanelTables(observations) {
       refDates.forEach((d) => {
         const opt = document.createElement('option');
         opt.value = d;
-        opt.textContent = formatDateLabel(d, true);
+        opt.textContent = formatDateLabel(d, { short: true, showTime: false });
         if (d === selectedRefDate) opt.selected = true;
         refSelect.appendChild(opt);
       });
@@ -368,7 +408,25 @@ function buildPanelTables(observations) {
       span.className = 'cursor-help underline underline-offset-2 decoration-dotted decoration-1 text-gray-500';
       const tip = originalPanelByDate.get(d) || panelName;
       span.title = tip;
-      span.textContent = formatDateLabel(d);
+      const dayKey = getDayKey(d);
+      const showTime = (dayCounts.get(dayKey) || 0) > 1;
+      if (showTime && d.includes('T')) {
+        const parsed = new Date(d);
+        if (!Number.isNaN(parsed.getTime())) {
+          const hours = parsed.getHours();
+          const period = hours >= 12 ? 'PM' : 'AM';
+          const displayHour = hours % 12 || 12;
+          span.textContent = formatDateLabel(d, { showTime: false });
+          const timeSpan = document.createElement('span');
+          timeSpan.className = 'text-[11px] text-gray-400';
+          timeSpan.textContent = ` (${displayHour} ${period})`;
+          span.appendChild(timeSpan);
+        } else {
+          span.textContent = formatDateLabel(d, { showTime, showMinutes: false });
+        }
+      } else {
+        span.textContent = formatDateLabel(d, { showTime, showMinutes: false });
+      }
       th.appendChild(span);
       headRow.appendChild(th);
     });
@@ -400,7 +458,7 @@ function buildPanelTables(observations) {
     testNames.forEach((testName) => {
       const row = document.createElement('tr');
       const nameTd = document.createElement('td');
-      nameTd.className = 'w-44 max-w-44 break-words';
+      nameTd.className = 'w-44 max-w-44 break-words sticky-col';
       const testObs = panelObs.filter((o) => o.testName === testName);
       const unit = getTestUnit(testObs);
       const displayName = `<span class="font-medium text-base-content">${testName}</span>`;
@@ -479,7 +537,7 @@ async function loadFromSession() {
     const owner = payload.patient?.ownerLastName || 'Unknown';
     patientEl.textContent = `"${animal}" ${owner}`;
   }
-  statusEl.textContent = '';
+  statusEl.textContent = formatPaginationWarning(payload.pagination) || '';
   await loadTrendSettings();
   buildPanelTables(payload.observations);
 }

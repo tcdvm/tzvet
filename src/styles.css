@@ -80,6 +80,17 @@ button {
   text-underline-offset: 2px;
 }
 
+.sticky-col {
+  position: sticky;
+  left: 0;
+  background: var(--color-base-100);
+  z-index: 2;
+}
+
+.sticky-col-header {
+  z-index: 4;
+}
+
 .howto-content ol,
 .howto-content ul {
   list-style-position: outside;

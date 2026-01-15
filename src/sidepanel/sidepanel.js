@@ -6,6 +6,11 @@ const status = document.getElementById('status');
 const defaultStatusText = 'Please verify any and all data processed by this extension.';
 const readyStatusText = 'Ready';
 
+function formatPaginationWarning(pagination) {
+  if (!pagination || !pagination.hasMore) return '';
+  return ` More results may exist (page ${pagination.current} of ${pagination.total}). Load additional pages or increase items/page.`;
+}
+
 const extractBtn = document.getElementById('extractLabTrends');
 const storedTrendsEl = document.getElementById('storedTrends');
 const clearTrendsBtn = document.getElementById('clearTrends');
@@ -72,12 +77,13 @@ if (extractBtn) {
       const key = `labTrends:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       await chrome.storage.session.set({ [key]: combinedPayload });
       const shouldOpen = autoOpenTrends ? autoOpenTrends.checked : true;
+      const paginationNote = formatPaginationWarning(payload.pagination);
       if (shouldOpen) {
-        status.textContent = `Lab trends found: ${payload.count}. Opening trends...`;
+        status.textContent = `Lab trends found: ${payload.count}. Opening trends...${paginationNote}`;
         const trendsUrl = chrome.runtime.getURL(`trends/index.html?key=${encodeURIComponent(key)}`);
         await chrome.tabs.create({ url: trendsUrl });
       } else {
-        status.textContent = `Lab trends found: ${payload.count}. Cached.`;
+        status.textContent = `Lab trends found: ${payload.count}. Cached.${paginationNote}`;
       }
       console.log('Lab trends payload', combinedPayload);
       refreshStoredTrends();

@@ -26,12 +26,27 @@ function cleanRowText(text) {
 }
 
 function parseDateFromLine(line) {
-  const m = line.match(/\b(\d{1,2}-\d{1,2}-\d{4})\s+(\d{1,2}:\d{2}:\d{2})(am|pm)\b/i);
+  const m = line.match(/Result Date:\s*([A-Za-z]{3,})\s+(\d{1,2}),\s+(\d{4})\s+(\d{1,2}:\d{2}:\d{2})\s*(AM|PM)\b/i);
   if (!m) return null;
-  const parts = m[1].split('-').map((p) => p.padStart(2, '0'));
-  const mm = parts[0];
-  const dd = parts[1];
-  const yyyy = parts[2];
+  const monthNames = {
+    jan: '01',
+    feb: '02',
+    mar: '03',
+    apr: '04',
+    may: '05',
+    jun: '06',
+    jul: '07',
+    aug: '08',
+    sep: '09',
+    oct: '10',
+    nov: '11',
+    dec: '12'
+  };
+  const monthKey = m[1].slice(0, 3).toLowerCase();
+  const mm = monthNames[monthKey];
+  if (!mm) return null;
+  const dd = m[2].padStart(2, '0');
+  const yyyy = m[3];
   return `${yyyy}-${mm}-${dd}`;
 }
 
@@ -76,13 +91,44 @@ function extractSpecies(lines) {
 
 function parseRowText(rowText) {
   const lines = cleanRowText(rowText);
+  const dateLine = lines.find((line) => /Result Date:/i.test(line)) || '';
   return {
     rawLines: lines,
-    sampleDate: lines.length ? parseDateFromLine(lines[0]) : null,
+    sampleDate: dateLine ? parseDateFromLine(dateLine) : null,
     reference: extractReference(lines),
     panel: extractPanelFromClinicNotes(lines),
     species: extractSpecies(lines)
   };
+}
+
+function extractPaginationInfo(table, container) {
+  const sources = [];
+  if (table) {
+    const tfoot = table.querySelector('tfoot');
+    if (tfoot) sources.push(tfoot.innerText);
+    table.querySelectorAll('tr[class*="footer"], tr[class*="pager"], tr[class*="pagination"]').forEach((row) => {
+      sources.push(row.innerText);
+    });
+  }
+  if (container) {
+    container
+      .querySelectorAll('[class*="pager"], [class*="pagination"], [id*="pager"], [id*="pagination"]')
+      .forEach((el) => sources.push(el.innerText));
+  }
+  const text = sources
+    .map((t) => String(t || '').replace(/\s+/g, ' ').trim())
+    .find((t) => /page\s+\d+\s+of\s+\d+/i.test(t)
+      || /page\s+\d+\s*\/\s*\d+/i.test(t)
+      || /\b\d+\s+of\s+\d+\s+pages\b/i.test(t));
+  if (!text) return null;
+  const match = text.match(/page\s+(\d+)\s+of\s+(\d+)/i)
+    || text.match(/page\s+(\d+)\s*\/\s*(\d+)/i)
+    || text.match(/(\d+)\s+of\s+(\d+)\s+pages/i);
+  if (!match) return null;
+  const current = Number(match[1]);
+  const total = Number(match[2]);
+  if (!Number.isFinite(current) || !Number.isFinite(total)) return null;
+  return { current, total, text, hasMore: total > current };
 }
 
 function extractPatientInfo(container) {
@@ -240,43 +286,104 @@ function buildObservations(rows) {
 }
 
 function extractLabTrends() {
-  const container = document.querySelector('.rtabdetails.clinical.active');
-  if (!container) return { ok: false, error: 'No active clinical tab found' };
-
-  const notes = container.querySelector('div[id^="medicalnotesNotes"]');
-  if (!notes) return { ok: false, error: 'No medical notes container found' };
-
-  const table = notes.querySelector('table');
-  if (!table) return { ok: false, error: 'No notes table found' };
+  const clinicalContainer = document.querySelector('.rtabdetails.clinical.active');
+  const animalsContainer = document.querySelector('.rtabdetails.animals.active');
+  const container = clinicalContainer || animalsContainer;
+  if (!container) return { ok: false, error: 'No active clinical or animals tab found' };
 
   const rows = [];
-  const trs = table.querySelectorAll('tr');
-  trs.forEach((tr, idx) => {
-    const nested = tr.querySelector('table');
-    if (!nested) return;
-    const rowText = getRowTextWithoutNestedTables(tr);
-    const meta = parseRowText(rowText);
-    rows.push({
-      rowIndex: idx,
-      rowText,
-      meta,
-      nestedTableText: nested.innerText.trim(),
-      nestedTableMatrix: tableToMatrix(nested)
+  let pagination = null;
+
+  let notesContainerId = null;
+  if (clinicalContainer) {
+    const notes = container.querySelector('div[id^="medicalnotesNotes"]');
+    if (!notes) return { ok: false, error: 'No medical notes container found' };
+    notesContainerId = notes.id || null;
+
+    const table = notes.querySelector('table');
+    if (!table) return { ok: false, error: 'No notes table found' };
+    pagination = extractPaginationInfo(table, notes);
+
+    const trs = table.querySelectorAll('tr');
+    trs.forEach((tr, idx) => {
+      const nested = tr.querySelector('table');
+      if (!nested) return;
+      const rowText = getRowTextWithoutNestedTables(tr);
+      const meta = parseRowText(rowText);
+      rows.push({
+        rowIndex: idx,
+        rowText,
+        meta,
+        nestedTableText: nested.innerText.trim(),
+        nestedTableMatrix: tableToMatrix(nested)
+      });
     });
-  });
+  } else {
+    const diagnostics = container.querySelector('div[id^="DiagnosticsTable"]');
+    if (!diagnostics) return { ok: false, error: 'No diagnostics table container found' };
+    const table = diagnostics.querySelector('table');
+    if (!table) return { ok: false, error: 'No diagnostics table found' };
+    notesContainerId = diagnostics.id || null;
+    pagination = extractPaginationInfo(table, diagnostics);
+
+    const metaRows = diagnostics.querySelectorAll('tr[data-testid="DiagnosticResult"]');
+    if (metaRows.length) {
+      metaRows.forEach((tr, idx) => {
+        let next = tr.nextElementSibling;
+        while (next && next.tagName === 'TR' && !next.querySelector('table')) {
+          if (next.matches('tr[data-testid="DiagnosticResult"]')) break;
+          next = next.nextElementSibling;
+        }
+        if (!next) return;
+        const nextNested = next.querySelector('table');
+        if (!nextNested) return;
+        const rowText = getRowTextWithoutNestedTables(tr);
+        const meta = parseRowText(rowText);
+        rows.push({
+          rowIndex: idx,
+          rowText,
+          meta,
+          nestedTableText: nextNested.innerText.trim(),
+          nestedTableMatrix: tableToMatrix(nextNested)
+        });
+      });
+    } else {
+      const trs = Array.from(table.querySelectorAll('tr'));
+      for (let i = 0; i < trs.length; i += 1) {
+        const tr = trs[i];
+        const nested = tr.querySelector('table');
+        if (nested) continue;
+        const tds = tr.querySelectorAll('td');
+        if (tds.length < 2) continue;
+        const next = trs[i + 1];
+        if (!next) continue;
+        const nextNested = next.querySelector('table');
+        if (!nextNested) continue;
+        const rowText = getRowTextWithoutNestedTables(tr);
+        const meta = parseRowText(rowText);
+        rows.push({
+          rowIndex: i,
+          rowText,
+          meta,
+          nestedTableText: nextNested.innerText.trim(),
+          nestedTableMatrix: tableToMatrix(nextNested)
+        });
+      }
+    }
+  }
 
   const panelRows = rows.filter((row) => row.meta?.panel);
   const observations = buildObservations(panelRows);
-
   return {
     ok: true,
     patient: extractPatientInfo(container),
-    notesContainerId: notes.id || null,
+    notesContainerId,
     count: rows.length,
     rows,
     panelRowsCount: panelRows.length,
     panelRows,
-    observations
+    observations,
+    pagination
   };
 }
 

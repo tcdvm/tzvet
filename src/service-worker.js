@@ -3,7 +3,9 @@ const DEFAULT_TRENDS_DISABLE_PANELS = ['Urinalysis', 'Urinalalysis'];
 const DEFAULT_TRENDS_DISABLE_TESTS = [
   'Lipemic Serum Index',
   'Hemolytic Serum Index',
-  'Icteric Serum Index'
+  'Icteric Serum Index',
+  'Additional Results: Additional Results',
+  'Additional Results: Attached Report'
 ];
 
 function isAllowedUrl(url) {
@@ -53,12 +55,18 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
 async function ensureDefaultTrendSettings() {
   try {
     const stored = await chrome.storage.sync.get(['trendsDisablePanels', 'trendsDisableTests']);
-    const nextPanels = Array.isArray(stored.trendsDisablePanels) && stored.trendsDisablePanels.length
-      ? stored.trendsDisablePanels
-      : DEFAULT_TRENDS_DISABLE_PANELS;
-    const nextTests = Array.isArray(stored.trendsDisableTests) && stored.trendsDisableTests.length
-      ? stored.trendsDisableTests
-      : DEFAULT_TRENDS_DISABLE_TESTS;
+    const existingPanels = Array.isArray(stored.trendsDisablePanels) ? stored.trendsDisablePanels : [];
+    const existingTests = Array.isArray(stored.trendsDisableTests) ? stored.trendsDisableTests : [];
+    const mergedPanels = new Set([
+      ...existingPanels,
+      ...DEFAULT_TRENDS_DISABLE_PANELS
+    ]);
+    const mergedTests = new Set([
+      ...existingTests,
+      ...DEFAULT_TRENDS_DISABLE_TESTS
+    ]);
+    const nextPanels = Array.from(mergedPanels);
+    const nextTests = Array.from(mergedTests);
     await chrome.storage.sync.set({
       trendsDisablePanels: nextPanels,
       trendsDisableTests: nextTests
