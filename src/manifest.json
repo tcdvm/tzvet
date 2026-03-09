@@ -21,12 +21,12 @@
     "sidePanel"
   ],
   "host_permissions": [
-    "https://utcvm.use1.ezyvet.com/*"
+    "https://*.ezyvet.com/*"
   ],
   "content_scripts": [
     {
       "matches": [
-        "https://utcvm.use1.ezyvet.com/*"
+        "https://*.ezyvet.com/*"
       ],
       "js": [
         "content-script.js"

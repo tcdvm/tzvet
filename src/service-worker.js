@@ -1,4 +1,5 @@
-const ALLOWED_ORIGIN = 'https://utcvm.use1.ezyvet.com';
+const ALLOWED_HOST_SUFFIX = '.ezyvet.com';
+const ALLOWED_ROOT_HOST = 'ezyvet.com';
 const DEFAULT_TRENDS_DISABLE_PANELS = ['Urinalysis', 'Urinalalysis'];
 const DEFAULT_TRENDS_DISABLE_TESTS = [
   'Lipemic Serum Index',
@@ -11,7 +12,10 @@ const DEFAULT_TRENDS_DISABLE_TESTS = [
 function isAllowedUrl(url) {
   try {
     const u = new URL(url);
-    return u.origin === ALLOWED_ORIGIN;
+    return (
+      u.protocol === 'https:' &&
+      (u.hostname === ALLOWED_ROOT_HOST || u.hostname.endsWith(ALLOWED_HOST_SUFFIX))
+    );
   } catch {
     return false;
   }
