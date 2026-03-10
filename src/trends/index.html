@@ -9,7 +9,7 @@
 </head>
 
 <body class="p-6 bg-base-100 text-base-content" data-theme="bumblebee">
-  <div class="max-w-6xl mx-auto">
+  <div class="max-w-7xl mx-auto">
     <div class="mb-4 flex flex-wrap items-center gap-3">
       <div class="text-xl font-semibold">
         Lab Trends &mdash; <span id="patient" class="text-md text-gray-500"></span>
@@ -20,10 +20,32 @@
         <button id="panelChem" class="btn btn-xs">Chem</button>
         <button id="panelUa" class="btn btn-xs">UA</button>
         <button id="panelOther" class="btn btn-xs">Other</button>
+        <button id="toggleDebugPayload" class="btn btn-xs btn-outline">Debug</button>
         <span class="text-[11px] text-gray-400">Click or use &#8592; &#8594; keys</span>
       </div>
     </div>
-    <div id="panels" class="relative"></div>
+    <section id="debugPayloadSection" class="mb-4 hidden">
+      <div class="flex items-center gap-2 mb-2">
+        <h2 class="text-sm font-semibold">Extraction payload</h2>
+        <button id="refreshDebugPayload" class="btn btn-xs">Refresh</button>
+        <button id="copyDebugPayload" class="btn btn-xs">Copy</button>
+      </div>
+      <pre id="debugPayloadDisplay" class="text-xs whitespace-pre-wrap bg-base-200 rounded p-3 max-h-80 overflow-auto border border-base-300"></pre>
+    </section>
+    <div id="trendsLayout" class="flex flex-col gap-4">
+      <aside id="testFilterPanel" class="bg-base-200 border border-base-300 rounded-lg p-3 hidden min-w-0 w-full lg:w-72 lg:flex-shrink-0">
+        <div class="flex items-center justify-between mb-2">
+          <h2 class="text-sm font-semibold">Show tests for active panel</h2>
+          <span id="testFilterPanelCount" class="text-xs text-gray-500"></span>
+        </div>
+        <div class="flex gap-2 mb-2">
+          <button id="selectAllTests" class="btn btn-xs btn-outline">Select all</button>
+          <button id="clearAllTests" class="btn btn-xs btn-outline">Clear all</button>
+        </div>
+        <div id="testFilterList" class="max-h-80 overflow-auto text-sm space-y-1"></div>
+      </aside>
+      <div id="panels" class="relative w-full min-w-0 flex-1 overflow-visible"></div>
+    </div>
   </div>
 
   <dialog id="resultModal" class="modal">

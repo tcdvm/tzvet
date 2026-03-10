@@ -5,6 +5,17 @@ const panelsEl = document.getElementById('panels');
 const patientEl = document.getElementById('patient');
 const resultModal = document.getElementById('resultModal');
 const resultModalContent = document.getElementById('resultModalContent');
+const debugPayloadSection = document.getElementById('debugPayloadSection');
+const debugPayloadDisplay = document.getElementById('debugPayloadDisplay');
+const toggleDebugPayload = document.getElementById('toggleDebugPayload');
+const refreshDebugPayload = document.getElementById('refreshDebugPayload');
+const copyDebugPayload = document.getElementById('copyDebugPayload');
+const testFilterPanel = document.getElementById('testFilterPanel');
+const testFilterList = document.getElementById('testFilterList');
+const testFilterPanelCount = document.getElementById('testFilterPanelCount');
+const selectAllTestsBtn = document.getElementById('selectAllTests');
+const clearAllTestsBtn = document.getElementById('clearAllTests');
+const trendsLayout = document.getElementById('trendsLayout');
 const panelButtons = {
   CBC: document.getElementById('panelCbc'),
   Chemistry: document.getElementById('panelChem'),
@@ -12,13 +23,31 @@ const panelButtons = {
   Other: document.getElementById('panelOther')
 };
 
+const DEBUG_PANEL_KEY = 'tzvet.trends.debugPayloadVisible';
+
 let panelOrder = [];
 let panelSections = new Map();
 let activePanel = null;
 let lastObservations = [];
 const refDateByPanel = new Map();
 let trendSettings = { disablePanels: new Set(), disableTests: new Set() };
+let lastPayload = null;
+const panelTestEntriesByPanel = new Map();
+const panelTestFilterByPanel = new Map();
 const TRUNCATE_LENGTH = 150;
+const UNIT_NORMALIZATION_MAP = new Map([
+  ['ul', 'uL'],
+  ['x10^6/ul', 'x10^6/uL'],
+  ['x10^6/ul', 'x10^6/uL'],
+  ['x106/ul', 'x10^6/uL'],
+  ['x10e6/ul', 'x10^6/uL'],
+  ['10e6/ul', 'x10^6/uL'],
+  ['x10^3/ul', 'x10^3/uL'],
+  ['x10^3/ul', 'x10^3/uL'],
+  ['m/ul', 'x10^6/uL'],
+  ['k/ul', 'x10^3/uL'],
+  ['fl.', 'fl']
+]);
 
 function openResultModal(text) {
   if (!resultModal || !resultModalContent) return;
@@ -53,6 +82,59 @@ function normalizeTestKey(value) {
   return normalizeKey(value);
 }
 
+function normalizeUnit(value) {
+  const normalized = String(value || '')
+    .replace(/\u00b5/g, 'u')
+    .replace(/\u03BC/g, 'u')
+    .replace(/\s+/g, '')
+    .toLowerCase()
+    .trim();
+  const mapped = UNIT_NORMALIZATION_MAP.get(normalized);
+  if (mapped) return mapped;
+  return normalized;
+}
+
+function getTestSeriesKey(obs) {
+  const baseTest = normalizeTestKey(obs?.canonicalTestName || obs?.testName || '');
+  const unit = normalizeUnit(obs?.unit || '');
+  return `${baseTest}||${unit}`;
+}
+
+function getPreferredTestName(obs) {
+  return obs?.testName || obs?.canonicalTestName || '';
+}
+
+function setFilterLayoutVisible(visible) {
+  if (!trendsLayout) return;
+  if (visible) {
+    trendsLayout.className = 'flex flex-col lg:flex-row gap-4';
+  } else {
+    trendsLayout.className = 'flex flex-col gap-4';
+  }
+}
+
+function getTestFilterStateForPanel(panelName, fallbackEntries = []) {
+  const fallback = fallbackEntries.map((entry) => entry.key);
+  const saved = panelTestFilterByPanel.get(panelName);
+  if (!saved || saved.size === 0) {
+    return new Set(fallback);
+  }
+  const normalized = new Set();
+  for (const key of saved) {
+    if (fallback.includes(key)) normalized.add(key);
+  }
+  if (normalized.size === 0 && fallback.length > 0) {
+    return new Set(fallback);
+  }
+  return normalized;
+}
+
+function updatePanelFilterState(panelName, nextFilterKeys) {
+  if (!panelName) return;
+  const keys = new Set(nextFilterKeys || []);
+  panelTestFilterByPanel.set(panelName, keys);
+}
+
 async function loadTrendSettings() {
   const items = await chrome.storage.sync.get({
     trendsDisablePanels: [],
@@ -74,6 +156,59 @@ function isTrendDisabled(panelName, testName) {
   return false;
 }
 
+function getPayloadStorageKey() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('key') || 'labTrends';
+}
+
+function isDebugPayloadEnabled() {
+  return localStorage.getItem(DEBUG_PANEL_KEY) === '1';
+}
+
+function setDebugPayloadEnabled(enabled) {
+  localStorage.setItem(DEBUG_PANEL_KEY, enabled ? '1' : '0');
+}
+
+function applyDebugPayloadVisibility(enabled) {
+  if (!debugPayloadSection || !toggleDebugPayload) return;
+  debugPayloadSection.classList.toggle('hidden', !enabled);
+  toggleDebugPayload.textContent = enabled ? 'Hide Debug' : 'Debug';
+}
+
+async function getStoredPayload() {
+  const key = getPayloadStorageKey();
+  const data = await chrome.storage.session.get(key);
+  return data[key] || null;
+}
+
+function renderDebugPayload(payload) {
+  if (!debugPayloadDisplay) return;
+  if (!payload) {
+    debugPayloadDisplay.textContent = '(No payload found.)';
+    return;
+  }
+  debugPayloadDisplay.textContent = JSON.stringify(payload, null, 2);
+}
+
+function refreshDebugPayloadFromStorage() {
+  return getStoredPayload()
+    .then((payload) => {
+      lastPayload = payload;
+      renderDebugPayload(payload);
+    })
+    .catch(() => {
+      if (debugPayloadDisplay) debugPayloadDisplay.textContent = 'Error loading payload.';
+    });
+}
+
+function copyDebugPayloadToClipboard() {
+  const text = debugPayloadDisplay?.textContent || '';
+  if (!text || text === '(No payload found.)' || text === 'Error loading payload.') return;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).catch(() => null);
+  }
+}
+
 function normalizePanelName(panelName) {
   const key = normalizePanelKey(panelName);
   if (['cbc', 'chemistry', 'urinalysis'].includes(key)) {
@@ -82,6 +217,15 @@ function normalizePanelName(panelName) {
     return 'Urinalysis';
   }
   return 'Other';
+}
+
+function isLikelyPanelLabel(value) {
+  const normalized = normalizePanelKey(value);
+  if (!normalized) return false;
+  if (/^\d/.test(normalized)) return false;
+  if (/^\d{1,2}-\d{1,2}-\d{4}/.test(normalized)) return false;
+  if (/^\d{1,2}:\d{2}:\d{2}(?:\s*(?:am|pm))?/.test(normalized)) return false;
+  return true;
 }
 
 function asDateKey(iso) {
@@ -267,8 +411,8 @@ function getReferenceRange(observations) {
   return '';
 }
 
-function getReferenceForTestDate(panelObs, testName, dateKey) {
-  const match = panelObs.find((o) => o.testName === testName && asDateKey(o.collectedAt) === dateKey);
+function getReferenceForTestDate(panelObs, testSeriesKey, dateKey) {
+  const match = panelObs.find((o) => getTestSeriesKey(o) === testSeriesKey && asDateKey(o.collectedAt) === dateKey);
   if (match && (match.lowestValue || match.highestValue)) {
     return { low: match.lowestValue || null, high: match.highestValue || null };
   }
@@ -298,6 +442,55 @@ function getPreferredTestOrder(panelObs) {
   return best;
 }
 
+function renderTestFilterPanel(panelName) {
+  if (!testFilterPanel || !testFilterList) return;
+  const entries = panelTestEntriesByPanel.get(panelName) || [];
+  if (!entries.length) {
+    testFilterPanel.classList.add('hidden');
+    setFilterLayoutVisible(false);
+    return;
+  }
+
+  testFilterPanel.classList.remove('hidden');
+  setFilterLayoutVisible(true);
+  const filterState = getTestFilterStateForPanel(panelName, entries);
+  updatePanelFilterState(panelName, filterState);
+
+  if (testFilterPanelCount) {
+    testFilterPanelCount.textContent = `${filterState.size}/${entries.length}`;
+  }
+
+  testFilterList.innerHTML = '';
+  const list = document.createElement('div');
+  entries.forEach((entry) => {
+    const row = document.createElement('label');
+    row.className = 'label cursor-pointer justify-start gap-2 px-0 py-1';
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.className = 'checkbox checkbox-xs';
+    checkbox.checked = filterState.has(entry.key);
+    checkbox.addEventListener('change', () => {
+      const next = getTestFilterStateForPanel(panelName, entries);
+      if (checkbox.checked) next.add(entry.key);
+      else next.delete(entry.key);
+      updatePanelFilterState(panelName, next);
+      buildPanelTables(lastObservations);
+      setActivePanel(panelName);
+    });
+
+    const labelText = document.createElement('span');
+    labelText.className = 'label-text text-xs';
+    const unitLabel = entry.unit ? ` (${entry.unit})` : '';
+    labelText.textContent = `${entry.name}${unitLabel}`;
+
+    row.appendChild(checkbox);
+    row.appendChild(labelText);
+    list.appendChild(row);
+  });
+  testFilterList.appendChild(list);
+}
+
 function buildPanelTables(observations) {
   lastObservations = observations;
   if (panelsEl) {
@@ -305,6 +498,7 @@ function buildPanelTables(observations) {
     panelsEl.innerHTML = '';
   }
   panelSections = new Map();
+  panelTestEntriesByPanel.clear();
   const panels = new Map();
   observations.forEach((obs) => {
     if (!obs.panel || !obs.testName) return;
@@ -315,6 +509,10 @@ function buildPanelTables(observations) {
 
   if (!panels.size) {
     statusEl.textContent = 'No panel data found.';
+    if (testFilterPanel) {
+      testFilterPanel.classList.add('hidden');
+    }
+    setFilterLayoutVisible(false);
     return;
   }
 
@@ -341,22 +539,63 @@ function buildPanelTables(observations) {
     const originalPanelByDate = new Map();
     panelObs.forEach((obs) => {
       const dateKey = asDateKey(obs.collectedAt);
-      if (!originalPanelByDate.has(dateKey) && obs.originalPanel) {
-        originalPanelByDate.set(dateKey, obs.originalPanel);
+      if (!originalPanelByDate.has(dateKey)) {
+        const panelLabel = isLikelyPanelLabel(obs.originalPanel) ? obs.originalPanel : obs.panel;
+        originalPanelByDate.set(dateKey, panelLabel || panelName);
       }
     });
 
     const byTest = new Map();
     panelObs.forEach((o) => {
-      const testKey = o.testName;
-      if (!byTest.has(testKey)) byTest.set(testKey, new Map());
+      const testSeriesKey = getTestSeriesKey(o);
+      if (!byTest.has(testSeriesKey)) {
+        byTest.set(testSeriesKey, {
+          displayName: getPreferredTestName(o),
+          observationsByDate: new Map(),
+          unit: o.unit || ''
+        });
+      }
       const dateKey = asDateKey(o.collectedAt);
-      if (!byTest.get(testKey).has(dateKey)) byTest.get(testKey).set(dateKey, []);
-      byTest.get(testKey).get(dateKey).push(o);
+      if (!byTest.get(testSeriesKey).observationsByDate.has(dateKey)) {
+        byTest.get(testSeriesKey).observationsByDate.set(dateKey, []);
+      }
+      byTest.get(testSeriesKey).observationsByDate.get(dateKey).push(o);
     });
+    const panelFilterEntries = Array.from(byTest.entries()).map(([testSeriesKey, info]) => ({
+      key: testSeriesKey,
+      name: info.displayName,
+      unit: info.unit
+    }));
+    const testEntries = (() => {
+      let entries = panelFilterEntries;
+      if (panelName === 'Chemistry') {
+        const preferredOrder = getPreferredTestOrder(panelObs);
+        if (preferredOrder.length) {
+          const orderMap = new Map(preferredOrder.map((name, idx) => [normalizeTestKey(name), idx]));
+          entries = entries
+            .map((entry, idx) => ({
+              ...entry,
+              idx,
+              rank: orderMap.has(normalizeTestKey(entry.name))
+                ? orderMap.get(normalizeTestKey(entry.name))
+                : Number.MAX_SAFE_INTEGER
+            }))
+            .sort((a, b) => (a.rank - b.rank) || (a.idx - b.idx))
+            .map((item) => ({ ...item }));
+        }
+      }
+      return entries;
+    })();
+    const filterState = getTestFilterStateForPanel(panelName, testEntries);
+    updatePanelFilterState(panelName, filterState);
+    panelTestEntriesByPanel.set(panelName, testEntries);
+    const visibleTestEntries = testEntries.filter((entry) => filterState.has(entry.key));
+
     const hasAnyRef = refDates.length > 0;
-    const hasTrendData = Array.from(byTest.entries()).some(([name, byDate]) => {
-      if (isTrendDisabled(panelName, name)) return false;
+    const hasTrendData = visibleTestEntries.some((entry) => {
+      const info = byTest.get(entry.key);
+      if (!info?.displayName || isTrendDisabled(panelName, info.displayName)) return false;
+      const byDate = info.observationsByDate;
       const values = dates
         .map((d) => {
           const obsList = byDate.get(d) || [];
@@ -382,7 +621,7 @@ function buildPanelTables(observations) {
     tableWrap.className = 'overflow-x-auto max-w-full';
 
     const table = document.createElement('table');
-    table.className = 'table table-xs table-pin-rows table-zebra w-fit text-sm bg-base-100 border border-base-300 border-separate border-spacing-0 rounded-none';
+    table.className = 'table table-xs table-pin-rows table-zebra w-full text-sm bg-base-100 border border-base-300 border-separate border-spacing-0 rounded-none';
 
     const thead = document.createElement('thead');
     const headRow = document.createElement('tr');
@@ -457,34 +696,23 @@ function buildPanelTables(observations) {
     table.appendChild(thead);
 
     const tbody = document.createElement('tbody');
-    let testNames = Array.from(byTest.keys());
-    if (panelName === 'Chemistry') {
-      const preferredOrder = getPreferredTestOrder(panelObs);
-      if (preferredOrder.length) {
-        const orderMap = new Map(preferredOrder.map((name, idx) => [name, idx]));
-        testNames = testNames
-          .map((name, idx) => ({
-            name,
-            idx,
-            rank: orderMap.has(name) ? orderMap.get(name) : Number.MAX_SAFE_INTEGER
-          }))
-          .sort((a, b) => (a.rank - b.rank) || (a.idx - b.idx))
-          .map((item) => item.name);
-      }
-    }
-    testNames.forEach((testName) => {
+    visibleTestEntries.forEach((entry) => {
+      const testName = entry.name;
+      const testKey = entry.key;
+      const testInfo = byTest.get(testKey);
+      const byDate = testInfo?.observationsByDate || new Map();
       const row = document.createElement('tr');
       const nameTd = document.createElement('td');
       nameTd.className = 'w-44 max-w-44 break-words sticky-col';
-      const testObs = panelObs.filter((o) => o.testName === testName);
-      const unit = getTestUnit(testObs);
+      const testObs = dates.flatMap((d) => byDate.get(d) || []);
+      const unit = normalizeUnit(getTestUnit(testObs));
       const displayName = `<span class="font-medium text-base-content">${testName}</span>`;
-      const ref = getReferenceForTestDate(panelObs, testName, selectedRefDate);
+      const ref = getReferenceForTestDate(panelObs, testKey, selectedRefDate);
       const range = formatRangeText(ref);
       const metaParts = [];
       if (range) metaParts.push(range);
       else if (hasAnyRef) metaParts.push('<span class="text-[11px] text-gray-400 italic">no ref</span>');
-      if (unit) metaParts.push(`<span class="text-[11px] text-gray-400">(${unit})</span>`);
+      if (unit) metaParts.push(`<span class="text-[11px] text-gray-400">(${escapeHtml(unit)})</span>`);
       const meta = metaParts.length
         ? `<div class="text-[12px] text-gray-500">${metaParts.join(' ')}</div>`
         : '';
@@ -493,7 +721,7 @@ function buildPanelTables(observations) {
 
       dates.forEach((d) => {
         const td = document.createElement('td');
-        const obsList = byTest.get(testName).get(d) || [];
+        const obsList = byDate.get(d) || [];
         const cellText = formatCell(obsList, ref?.low, ref?.high);
         td.innerHTML = cellText;
         applyCellTruncation(td, cellText);
@@ -505,7 +733,7 @@ function buildPanelTables(observations) {
         trendTd.className = 'text-slate-500';
         if (!isTrendDisabled(panelName, testName)) {
           const series = dates.map((d) => {
-            const obsList = byTest.get(testName).get(d) || [];
+            const obsList = byDate.get(d) || [];
             return obsList.length ? obsList[0].valueRaw : null;
           });
           trendTd.innerHTML = buildSparkline(series, ref?.low, ref?.high);
@@ -514,6 +742,15 @@ function buildPanelTables(observations) {
       }
       tbody.appendChild(row);
     });
+    if (!visibleTestEntries.length) {
+      const emptyRow = document.createElement('tr');
+      const emptyTd = document.createElement('td');
+      emptyTd.className = 'text-gray-500 text-sm italic';
+      emptyTd.colSpan = Math.max(2, dates.length + 1);
+      emptyTd.textContent = 'No tests selected. Use the filter panel on the left.';
+      emptyRow.appendChild(emptyTd);
+      tbody.appendChild(emptyRow);
+    }
     table.appendChild(tbody);
 
     tableWrap.appendChild(table);
@@ -530,14 +767,17 @@ function buildPanelTables(observations) {
 }
 
 async function loadFromSession() {
-  const params = new URLSearchParams(window.location.search);
-  const key = params.get('key') || 'labTrends';
-  const data = await chrome.storage.session.get(key);
-  const payload = data[key];
+  const payload = await getStoredPayload();
+  lastPayload = payload;
   if (!payload || !payload.observations) {
     statusEl.textContent = '(No data found. Extract from the side panel first.)';
     panelsEl.innerHTML = '';
     if (patientEl) patientEl.textContent = '';
+    panelTestEntriesByPanel.clear();
+    panelTestFilterByPanel.clear();
+    if (testFilterPanel) testFilterPanel.classList.add('hidden');
+    setFilterLayoutVisible(false);
+    renderDebugPayload(payload);
     return;
   }
   if (patientEl) {
@@ -546,6 +786,9 @@ async function loadFromSession() {
     patientEl.textContent = `"${animal}" ${owner}`;
   }
   statusEl.textContent = formatPaginationWarning(payload.pagination) || '';
+  if (isDebugPayloadEnabled()) {
+    renderDebugPayload(payload);
+  }
   await loadTrendSettings();
   buildPanelTables(payload.observations);
 }
@@ -561,6 +804,7 @@ function setActivePanel(panelName) {
     }
   }
   updatePanelButtons();
+  renderTestFilterPanel(panelName);
 }
 
 function updatePanelButtons() {
@@ -571,14 +815,19 @@ function updatePanelButtons() {
       btn.classList.add('btn-disabled');
       btn.classList.remove('btn-active');
       btn.classList.remove('btn-outline');
+      btn.classList.remove('btn-primary');
       return;
     }
-    btn.disabled = name === activePanel;
+    btn.disabled = false;
     btn.classList.remove('btn-disabled');
     if (name === activePanel) {
-      btn.classList.add('btn-active', 'btn-outline');
+      btn.classList.add('btn-active', 'btn-primary');
+      btn.classList.remove('btn-outline');
+      btn.setAttribute('aria-pressed', 'true');
     } else {
-      btn.classList.remove('btn-active', 'btn-outline');
+      btn.classList.remove('btn-active', 'btn-primary');
+      btn.classList.add('btn-outline');
+      btn.setAttribute('aria-pressed', 'false');
     }
   });
 }
@@ -587,6 +836,50 @@ Object.entries(panelButtons).forEach(([name, btn]) => {
   if (!btn) return;
   btn.addEventListener('click', () => setActivePanel(name));
 });
+
+if (selectAllTestsBtn) {
+  selectAllTestsBtn.addEventListener('click', () => {
+    if (!activePanel) return;
+    const entries = panelTestEntriesByPanel.get(activePanel) || [];
+    const allKeys = entries.map((entry) => entry.key);
+    updatePanelFilterState(activePanel, allKeys);
+    buildPanelTables(lastObservations);
+    setActivePanel(activePanel);
+  });
+}
+
+if (clearAllTestsBtn) {
+  clearAllTestsBtn.addEventListener('click', () => {
+    if (!activePanel) return;
+    updatePanelFilterState(activePanel, []);
+    buildPanelTables(lastObservations);
+    setActivePanel(activePanel);
+  });
+}
+
+if (toggleDebugPayload) {
+  applyDebugPayloadVisibility(isDebugPayloadEnabled());
+  toggleDebugPayload.addEventListener('click', () => {
+    const next = !isDebugPayloadEnabled();
+    setDebugPayloadEnabled(next);
+    applyDebugPayloadVisibility(next);
+    if (next) {
+      refreshDebugPayloadFromStorage();
+    }
+  });
+}
+
+if (refreshDebugPayload) {
+  refreshDebugPayload.addEventListener('click', () => {
+    refreshDebugPayloadFromStorage();
+  });
+}
+
+if (copyDebugPayload) {
+  copyDebugPayload.addEventListener('click', () => {
+    copyDebugPayloadToClipboard();
+  });
+}
 
 document.addEventListener('keydown', (e) => {
   if (!activePanel || !panelOrder.length) return;
@@ -610,3 +903,4 @@ chrome.storage.onChanged.addListener((changes, area) => {
 });
 
 loadFromSession();
+

@@ -100,6 +100,55 @@ function parseDateFromLine(line) {
   return `${yyyy}-${mm}-${dd}T${hh}:${minute}:${second}`;
 }
 
+function parseDateFromGenericCellText(text) {
+  if (!text) return null;
+  const trimmed = String(text).trim();
+  if (!trimmed) return null;
+
+  const m = trimmed.match(
+    /^(\d{1,2})-(\d{1,2})-(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})(am|pm)\b/i
+  );
+  if (m) {
+    const mm = m[1].padStart(2, '0');
+    const dd = m[2].padStart(2, '0');
+    const yyyy = m[3];
+    let hour = Number(m[4]);
+    const minute = m[5];
+    const second = m[6];
+    const period = m[7].toUpperCase();
+    if (Number.isNaN(hour)) return `${yyyy}-${mm}-${dd}`;
+    if (period === 'AM' && hour === 12) hour = 0;
+    if (period === 'PM' && hour < 12) hour += 12;
+    const hh = String(hour).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}T${hh}:${minute}:${second}`;
+  }
+
+  return null;
+}
+
+function parseDateFromRowElement(row) {
+  if (!row || typeof row.querySelector !== 'function') return null;
+  const cells = Array.from(row.querySelectorAll(':scope > td')).map((td) =>
+    String(td?.textContent || '').replace(/\s+/g, ' ').trim()
+  );
+  if (!cells.length) return null;
+
+  const candidates = [];
+  if (cells.length > 1) candidates.push(cells[1]);
+  if (cells.length > 2) {
+    candidates.push(cells[cells.length - 2]);
+  }
+
+  for (const candidate of candidates) {
+    const parsed = parseDateFromGenericCellText(candidate);
+    if (parsed) return parsed;
+    const resultDateLike = parseDateFromLine(`Result Date: ${candidate}`);
+    if (resultDateLike) return resultDateLike;
+  }
+
+  return null;
+}
+
 function extractReference(lines) {
   for (const line of lines) {
     const m = line.match(/Reference:\s*([A-Za-z0-9-]+)/i);
@@ -123,6 +172,23 @@ function extractPanelFromClinicNotes(lines) {
   return null;
 }
 
+function extractPanelFromLines(lines, profile) {
+  const tenantOverride = profile?.parsingOverrides?.extractPanelFromLines;
+  if (typeof tenantOverride === 'function') {
+    const panelName = tenantOverride(lines, extractPanelFromClinicNotes);
+    if (typeof panelName === 'string') {
+      const normalized = panelName.trim();
+      if (normalized) return normalized;
+    }
+
+    if (profile?.tenant === 'tamu') {
+      return null;
+    }
+  }
+
+  return extractPanelFromClinicNotes(lines);
+}
+
 function extractSpecies(lines) {
   const speciesMap = [
     { re: /\bcanine\b/i, value: 'Canine' },
@@ -139,20 +205,22 @@ function extractSpecies(lines) {
   return Array.from(new Set(found));
 }
 
-function parseRowText(rowText) {
+function parseRowText(rowText, profile = null, row = null) {
   const lines = cleanRowText(rowText);
   const dateLine = lines.find((line) => /Result Date:/i.test(line)) || '';
+  const parsedDateFromLine = dateLine ? parseDateFromLine(dateLine) : null;
+  const parsedDateFromRow = parseDateFromRowElement(row);
   return {
     rawLines: lines,
-    sampleDate: dateLine ? parseDateFromLine(dateLine) : null,
+    sampleDate: parsedDateFromLine || parsedDateFromRow,
     reference: extractReference(lines),
-    panel: extractPanelFromClinicNotes(lines),
+    panel: extractPanelFromLines(lines, profile || getTenantProfile(DEFAULT_TENANT_ID)),
     species: extractSpecies(lines)
   };
 }
 
-export function parseRowTextForTest(rowText) {
-  return parseRowText(rowText);
+export function parseRowTextForTest(rowText, profile = null, row = null) {
+  return parseRowText(rowText, profile || getTenantProfile(DEFAULT_TENANT_ID), row);
 }
 
 function resolveCanonicalLabel(rawLabel, groups, ctx, matchContext = {}) {
@@ -295,6 +363,11 @@ function buildObservations(rows, profile, parserCtx) {
   const observations = [];
 
   rows.forEach((row) => {
+    const hasHoldStatus = row.nestedTableMatrix?.some((cells) => isHoldStatusPlaceholder(cells, profile?.tenant));
+    if (hasHoldStatus) {
+      addWarning(parserCtx, 'ignored_panel', row.meta?.panel || '', { reason: 'hold_status_placeholder' });
+      return;
+    }
     const originalPanel = row.meta?.panel || null;
     const panelInfo = canonicalizePanel(profile, originalPanel, {
       ...parserCtx,
@@ -347,6 +420,14 @@ function buildObservations(rows, profile, parserCtx) {
   });
 
   return observations;
+}
+
+function isHoldStatusPlaceholder(cells, tenant) {
+  if (!cells || tenant !== 'tamu') return false;
+  const firstCell = String(cells[0] || '').trim();
+  if (!firstCell) return false;
+  const normalized = normalizeLabel(firstCell);
+  return normalized === 'hold status' || /^hold\s*status\b/i.test(firstCell);
 }
 
 function extractPaginationInfo(table, container) {
@@ -480,7 +561,7 @@ export function extractLabTrends() {
       const nested = tr.querySelector('table');
       if (!nested) return;
       const rowText = getRowTextWithoutNestedTables(tr);
-      const meta = parseRowText(rowText);
+      const meta = parseRowText(rowText, profile, tr);
       rows.push({
         rowIndex: idx,
         rowText,
@@ -509,7 +590,7 @@ export function extractLabTrends() {
         const nextNested = next.querySelector('table');
         if (!nextNested) return;
         const rowText = getRowTextWithoutNestedTables(tr);
-        const meta = parseRowText(rowText);
+        const meta = parseRowText(rowText, profile, tr);
         rows.push({
           rowIndex: idx,
           rowText,
@@ -529,7 +610,7 @@ export function extractLabTrends() {
         const nextNested = next.querySelector('table');
         if (!nextNested) continue;
         const rowText = getRowTextWithoutNestedTables(tr);
-        const meta = parseRowText(rowText);
+        const meta = parseRowText(rowText, profile, tr);
         rows.push({
           rowIndex: i,
           rowText,
