@@ -166,9 +166,26 @@ function formatCell(observations, refLow, refHigh) {
         parts.push(rendered);
       }
       if (obs.qualifier) parts.push(`(${escapeHtml(obs.qualifier)})`);
-      return parts.join(' ');
+      const result = parts.join(' ');
+      if (!obs.comment) return result;
+      const comment = `<div class="text-xs text-gray-500 italic mt-1">${escapeHtml(obs.comment)}</div>`;
+      return result ? `${result}${comment}` : comment;
     })
     .join('; ');
+}
+
+function applyCellTruncation(cell, rawText, tooltipText = rawText) {
+  if (!cell || !rawText) return;
+  const text = String(tooltipText || cell.textContent || rawText).trim();
+  if (text.length <= TRUNCATE_LENGTH) return;
+  const wrap = document.createElement('span');
+  wrap.className = 'cell-truncate cell-modal';
+  wrap.innerHTML = cell.innerHTML;
+  cell.innerHTML = '';
+  cell.appendChild(wrap);
+  cell.classList.add('cursor-pointer');
+  cell.title = `Click to view full result: ${tooltipText || 'details'}`;
+  cell.addEventListener('click', () => openResultModal(text));
 }
 
 function parseNumber(value) {
@@ -477,18 +494,9 @@ function buildPanelTables(observations) {
       dates.forEach((d) => {
         const td = document.createElement('td');
         const obsList = byTest.get(testName).get(d) || [];
-        td.innerHTML = formatCell(obsList, ref?.low, ref?.high);
-        const cellText = td.textContent.trim();
-        if (cellText.length > TRUNCATE_LENGTH) {
-          const wrap = document.createElement('span');
-          wrap.className = 'cell-truncate cell-modal';
-          wrap.innerHTML = td.innerHTML;
-          td.innerHTML = '';
-          td.appendChild(wrap);
-          td.classList.add('cursor-pointer');
-          td.title = 'Click to view full result';
-          td.addEventListener('click', () => openResultModal(cellText));
-        }
+        const cellText = formatCell(obsList, ref?.low, ref?.high);
+        td.innerHTML = cellText;
+        applyCellTruncation(td, cellText);
         row.appendChild(td);
       });
 
