@@ -8,20 +8,23 @@
   <link rel="stylesheet" href="../styles.css">
 </head>
 
-<body class="p-6 bg-base-100 text-base-content" data-theme="bumblebee">
-  <div class="max-w-7xl mx-auto">
-    <div class="mb-4 flex flex-wrap items-center gap-3">
-      <div class="text-xl font-semibold">
-        Lab Trends &mdash; <span id="patient" class="text-md text-gray-500"></span>
-        <span id="status" class="text-xs text-gray-400">(Waiting for data…)</span>
-      </div>
-      <div class="flex items-center gap-2">
-        <button id="panelCbc" class="btn btn-xs">CBC</button>
-        <button id="panelChem" class="btn btn-xs">Chem</button>
-        <button id="panelUa" class="btn btn-xs">UA</button>
-        <button id="panelOther" class="btn btn-xs">Other</button>
-        <button id="toggleDebugPayload" class="btn btn-xs btn-outline">Debug</button>
-        <span class="text-[11px] text-gray-400">Click or use &#8592; &#8594; keys</span>
+<body class="lab-trends-page p-4 md:p-5 bg-base-100 text-base-content" data-theme="bumblebee">
+  <div class="max-w-[1500px] mx-auto">
+    <div class="lab-trends-header mb-4">
+      <div class="min-w-0">
+        <div class="lab-trends-title-row">
+          <h1 class="lab-trends-title">Lab Trends</h1>
+          <span id="patient" class="lab-trends-patient"></span>
+          <div class="lab-trends-panel-buttons">
+            <button id="panelCbc" class="btn btn-xs">CBC</button>
+            <button id="panelChem" class="btn btn-xs">Chem</button>
+            <button id="panelUa" class="btn btn-xs">UA</button>
+            <button id="panelOther" class="btn btn-xs">Other</button>
+            <button id="toggleDebugPayload" class="btn btn-xs btn-outline">Debug</button>
+            <span class="lab-trends-shortcuts">Use Alt + &#8592; / &#8594; to switch panels</span>
+          </div>
+        </div>
+        <div id="status" class="lab-trends-status">(Waiting for data…)</div>
       </div>
     </div>
     <section id="debugPayloadSection" class="mb-4 hidden">
@@ -33,25 +36,14 @@
       <pre id="debugPayloadDisplay" class="text-xs whitespace-pre-wrap bg-base-200 rounded p-3 max-h-80 overflow-auto border border-base-300"></pre>
     </section>
     <div id="trendsLayout" class="flex flex-col gap-4">
-      <aside id="testFilterPanel" class="bg-base-200 border border-base-300 rounded-lg p-3 hidden min-w-0 w-full lg:w-72 lg:flex-shrink-0">
-        <div class="flex items-center justify-between mb-2">
-          <h2 class="text-sm font-semibold">Show tests for active panel</h2>
-          <span id="testFilterPanelCount" class="text-xs text-gray-500"></span>
-        </div>
-        <div class="flex gap-2 mb-2">
-          <button id="selectAllTests" class="btn btn-xs btn-outline">Select all</button>
-          <button id="clearAllTests" class="btn btn-xs btn-outline">Clear all</button>
-        </div>
-        <div id="testFilterList" class="max-h-80 overflow-auto text-sm space-y-1"></div>
-      </aside>
-      <div id="panels" class="relative w-full min-w-0 flex-1 overflow-visible"></div>
+      <div id="panels" class="relative w-full min-w-0 overflow-visible"></div>
     </div>
   </div>
 
   <dialog id="resultModal" class="modal">
     <div class="modal-box max-w-2xl">
       <h3 class="font-semibold text-lg">Full Result</h3>
-      <pre id="resultModalContent" class="mt-3 whitespace-pre-wrap text-sm"></pre>
+      <div id="resultModalContent" class="mt-3 text-sm whitespace-pre-wrap"></div>
       <div class="modal-action">
         <form method="dialog">
           <button class="btn btn-sm">Close</button>

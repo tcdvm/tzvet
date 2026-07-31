@@ -18,9 +18,14 @@ export const CANONICAL_TEST_DISPLAY_NAMES = {
   bun: 'BUN',
   bun_creatinine_ratio: 'BUN: Creatinine Ratio',
   creatinine: 'Creatinine',
+  urine_protein_creatinine_ratio: 'Urine Protein:Creatinine Ratio',
+  urine_cortisol_creatinine_ratio: 'Urine Cortisol:Creatinine Ratio',
+  urine_creatinine: 'Urine Creatinine',
+  urine_microprotein: 'Urine Microprotein',
   glucose: 'Glucose',
   alt: 'Alanine aminotransferase',
-  alp: 'Alk Phosphatase',
+  ast: 'Aspartate aminotransferase',
+  alp: 'Alk phosphatase',
   phosphorus: 'Phosphorus',
   bilirubin_total: 'Bilirubin, Total'
 };
@@ -54,8 +59,45 @@ function isLikelyPanelLine(value) {
   return true;
 }
 
+function hasTamuUrinePanelSignals(text) {
+  const normalized = normalizePanelLabel(text).toLowerCase();
+  if (!normalized) return false;
+  return (
+    normalized.includes('urine protein creatinine ratio')
+    || normalized.includes('urine protein:creatinine ratio')
+    || normalized.includes('urine protein creatinine')
+    || normalized.includes('urine microprotein')
+    || normalized.includes('urine creatinine')
+    || normalized.includes('urine creatine')
+    || /\bupc\b/.test(normalized)
+  );
+}
+
+function extractTamuUrinePanelOverride(lines) {
+  const normalizedLines = lines.map((line) => normalizePanelLabel(line));
+  const outcomeLines = normalizedLines.filter((line) => /outcome\s*:?\s*$/i.test(line) || /\boutcome\b/i.test(line));
+  const forLines = normalizedLines.filter((line) => /^for:\s*/i.test(line));
+
+  if (outcomeLines.some((line) => hasTamuUrinePanelSignals(line))) {
+    return 'Urinalysis';
+  }
+
+  if (forLines.some((line) => hasTamuUrinePanelSignals(line))) {
+    return 'Urinalysis';
+  }
+
+  if (normalizedLines.some((line) => /^cp-chemistry-/i.test(line) && hasTamuUrinePanelSignals(line))) {
+    return 'Urinalysis';
+  }
+
+  return null;
+}
+
 function extractTamuPanelFromOutcomeLine(lines) {
-  const referenceIndex = lines.findIndex((line) => /^Reference:\s*US\d+-DR\d+/i.test(line));
+  const urineOverride = extractTamuUrinePanelOverride(lines);
+  if (urineOverride) return urineOverride;
+
+  const referenceIndex = lines.findIndex((line) => /^Reference:\s*US\d+-DR(?:\d+)?/i.test(line));
   if (referenceIndex >= 0) {
     for (let i = referenceIndex + 1; i < lines.length; i += 1) {
       const rawLine = String(lines[i] || '').trim();
@@ -202,6 +244,96 @@ const testAliasGroups = {
       ]
     },
     {
+      canonical: 'urine_protein_creatinine_ratio',
+      display: 'Urine Protein:Creatinine Ratio',
+      aliases: [
+        'urine protein:creatinine ratio',
+        'urine protein creatinine ratio',
+        'urine protein/creatinine ratio',
+        'urine protein to creatinine ratio',
+        'urine protein creatinine',
+        'upc',
+        (raw, normalized) => normalized.includes('urine') && normalized.includes('protein') && normalized.includes('creatinine')
+      ]
+    },
+    {
+      canonical: 'urine_creatinine',
+      display: 'Urine Creatinine',
+      aliases: [
+        'urine creatinine',
+        (raw, normalized) => normalized.includes('urine') && normalized.includes('creatinine')
+      ]
+    },
+    {
+      canonical: 'urine_microprotein',
+      display: 'Urine Microprotein',
+      aliases: [
+        'urine microprotein',
+        'microprotein',
+        (raw, normalized) => normalized.includes('urine') && normalized.includes('microprotein')
+      ]
+    },
+    {
+      canonical: 'urine_protein_creatinine_ratio',
+      display: 'Urine Protein:Creatinine Ratio',
+      aliases: [
+        'urine protein:creatinine ratio',
+        'urine protein creatinine ratio',
+        'urine protein/creatinine ratio',
+        'urine protein to creatinine ratio',
+        'upc',
+        (raw, normalized) => (
+          normalized.includes('urine')
+          && normalized.includes('protein')
+          && normalized.includes('creatinine')
+          && normalized.includes('ratio')
+        )
+      ]
+    },
+    {
+      canonical: 'urine_cortisol_creatinine_ratio',
+      display: 'Urine Cortisol:Creatinine Ratio',
+      aliases: [
+        'urine cortisol:creatinine ratio',
+        'urine cortisol creatinine ratio',
+        'urine cortisol/creatinine ratio',
+        'urine cortisol to creatinine ratio',
+        (raw, normalized) => (
+          normalized.includes('urine')
+          && normalized.includes('cortisol')
+          && normalized.includes('creatinine')
+          && normalized.includes('ratio')
+        )
+      ]
+    },
+    {
+      canonical: 'urine_creatinine',
+      display: 'Urine Creatinine',
+      aliases: [
+        'urine creatinine',
+        'urine creatine',
+        (raw, normalized, group, ctx, matchContext) => (
+          (normalized.includes('urine') && (normalized.includes('creatinine') || normalized.includes('creatine')))
+          || (
+            matchContext?.panelCanonical === 'urinalysis'
+            && /^(creatinine|creatine)$/.test(normalized)
+          )
+        )
+      ]
+    },
+    {
+      canonical: 'urine_microprotein',
+      display: 'Urine Microprotein',
+      aliases: [
+        'urine microprotein',
+        'microprotein',
+        (raw, normalized, group, ctx, matchContext) => (
+          normalized.includes('microprotein')
+          && (normalized.includes('urine') || matchContext?.panelCanonical === 'urinalysis')
+        )
+      ]
+    },
+    {
       canonical: 'bun_creatinine_ratio',
       display: 'BUN: Creatinine Ratio',
       aliases: [
@@ -226,7 +358,8 @@ const testAliasGroups = {
     { canonical: 'phosphorus', display: 'Phosphorus', aliases: ['phosphorus', 'phosphate'] },
     { canonical: 'bilirubin_total', display: 'Bilirubin, Total', aliases: ['total bilirubin', 'bilirubin total', 'bilirubin'] },
     { canonical: 'alt', display: 'Alanine aminotransferase', aliases: ['alanine aminotransferase', 'alt'] },
-    { canonical: 'alp', display: 'Alk Phosphatase', aliases: ['alkaline phosphatase', 'alk phos', 'alp', 'alk-phosphatase'] }
+    { canonical: 'alp', display: 'Alk phosphatase', aliases: ['alkaline phosphatase', 'alk phos', 'alp', 'alk-phosphatase'] },
+    { canonical: 'ast', display: 'Aspartate aminotransferase', aliases: ['aspartate aminotransferase', 'ast'] },
   ],
   tamu: [
     {
@@ -305,7 +438,13 @@ const testAliasGroups = {
       ]
     },
     { canonical: 'bun', display: 'BUN', aliases: ['bun', 'urea nitrogen', 'blood urea nitrogen'] },
-    { canonical: 'creatinine', display: 'Creatinine', aliases: ['creatinine'] },
+    {
+      canonical: 'creatinine',
+      display: 'Creatinine',
+      aliases: [
+        (raw, normalized) => normalized === 'creatinine' || normalized === 'creatine'
+      ]
+    },
     { canonical: 'glucose', display: 'Glucose', aliases: ['glucose', 'blood glucose'] },
     { canonical: 'alt', display: 'Alanine aminotransferase', aliases: ['alanine aminotransferase', 'alt', 'sgpt'] },
     { canonical: 'alp', display: 'Alk Phosphatase', aliases: ['alkaline phosphatase', 'alk phos', 'alp'] },

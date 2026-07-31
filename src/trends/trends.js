@@ -10,12 +10,7 @@ const debugPayloadDisplay = document.getElementById('debugPayloadDisplay');
 const toggleDebugPayload = document.getElementById('toggleDebugPayload');
 const refreshDebugPayload = document.getElementById('refreshDebugPayload');
 const copyDebugPayload = document.getElementById('copyDebugPayload');
-const testFilterPanel = document.getElementById('testFilterPanel');
-const testFilterList = document.getElementById('testFilterList');
-const testFilterPanelCount = document.getElementById('testFilterPanelCount');
-const selectAllTestsBtn = document.getElementById('selectAllTests');
-const clearAllTestsBtn = document.getElementById('clearAllTests');
-const trendsLayout = document.getElementById('trendsLayout');
+const IS_PRODUCTION = import.meta.env.PROD;
 const panelButtons = {
   CBC: document.getElementById('panelCbc'),
   Chemistry: document.getElementById('panelChem'),
@@ -24,16 +19,27 @@ const panelButtons = {
 };
 
 const DEBUG_PANEL_KEY = 'tzvet.trends.debugPayloadVisible';
+const DEFAULT_PANEL_DISPLAY_OPTIONS = Object.freeze({
+  groupAnnotations: true,
+  hideBlankRows: false,
+  hideBlankColumns: false,
+  showDateSourceLabels: false
+});
+const DEFAULT_TABLE_FILTERS = Object.freeze({
+  testName: '',
+  sourceLabel: ''
+});
 
 let panelOrder = [];
 let panelSections = new Map();
 let activePanel = null;
 let lastObservations = [];
 const refDateByPanel = new Map();
+let globalPanelDisplayOptions = { ...DEFAULT_PANEL_DISPLAY_OPTIONS };
+let globalTableFilters = { ...DEFAULT_TABLE_FILTERS };
+let pendingFilterFocus = null;
+let sourceLabelPreviewPanel = null;
 let trendSettings = { disablePanels: new Set(), disableTests: new Set() };
-let lastPayload = null;
-const panelTestEntriesByPanel = new Map();
-const panelTestFilterByPanel = new Map();
 const TRUNCATE_LENGTH = 150;
 const UNIT_NORMALIZATION_MAP = new Map([
   ['ul', 'uL'],
@@ -49,9 +55,9 @@ const UNIT_NORMALIZATION_MAP = new Map([
   ['fl.', 'fl']
 ]);
 
-function openResultModal(text) {
+function openResultModal(contentHtml) {
   if (!resultModal || !resultModalContent) return;
-  resultModalContent.textContent = text;
+  resultModalContent.innerHTML = contentHtml;
   resultModal.showModal();
 }
 
@@ -104,35 +110,59 @@ function getPreferredTestName(obs) {
   return obs?.testName || obs?.canonicalTestName || '';
 }
 
-function setFilterLayoutVisible(visible) {
-  if (!trendsLayout) return;
-  if (visible) {
-    trendsLayout.className = 'flex flex-col lg:flex-row gap-4';
-  } else {
-    trendsLayout.className = 'flex flex-col gap-4';
-  }
+function getPanelDisplayOptions(panelName) {
+  return { ...DEFAULT_PANEL_DISPLAY_OPTIONS, ...globalPanelDisplayOptions };
 }
 
-function getTestFilterStateForPanel(panelName, fallbackEntries = []) {
-  const fallback = fallbackEntries.map((entry) => entry.key);
-  const saved = panelTestFilterByPanel.get(panelName);
-  if (!saved || saved.size === 0) {
-    return new Set(fallback);
-  }
-  const normalized = new Set();
-  for (const key of saved) {
-    if (fallback.includes(key)) normalized.add(key);
-  }
-  if (normalized.size === 0 && fallback.length > 0) {
-    return new Set(fallback);
-  }
-  return normalized;
+function updatePanelDisplayOptions(panelName, nextOptions) {
+  globalPanelDisplayOptions = {
+    ...getPanelDisplayOptions(panelName),
+    ...nextOptions
+  };
 }
 
-function updatePanelFilterState(panelName, nextFilterKeys) {
-  if (!panelName) return;
-  const keys = new Set(nextFilterKeys || []);
-  panelTestFilterByPanel.set(panelName, keys);
+function getEffectivePanelDisplayOptions(panelName) {
+  const panelOptions = getPanelDisplayOptions(panelName);
+  if (sourceLabelPreviewPanel !== panelName) return panelOptions;
+  return {
+    ...panelOptions,
+    showDateSourceLabels: true
+  };
+}
+
+function getTableFilters() {
+  return { ...DEFAULT_TABLE_FILTERS, ...globalTableFilters };
+}
+
+function updateTableFilters(nextFilters) {
+  globalTableFilters = {
+    ...getTableFilters(),
+    ...nextFilters
+  };
+}
+
+function captureFilterFocusState(input, key) {
+  if (!input || !key) {
+    pendingFilterFocus = null;
+    return;
+  }
+  pendingFilterFocus = {
+    key,
+    selectionStart: input.selectionStart ?? null,
+    selectionEnd: input.selectionEnd ?? null
+  };
+}
+
+function restorePendingFilterFocus(root = document) {
+  if (!pendingFilterFocus) return;
+  const selector = `[data-filter-key="${pendingFilterFocus.key}"]`;
+  const input = root.querySelector(selector);
+  if (!input) return;
+  input.focus();
+  if (pendingFilterFocus.selectionStart !== null && pendingFilterFocus.selectionEnd !== null) {
+    input.setSelectionRange(pendingFilterFocus.selectionStart, pendingFilterFocus.selectionEnd);
+  }
+  pendingFilterFocus = null;
 }
 
 async function loadTrendSettings() {
@@ -175,6 +205,25 @@ function applyDebugPayloadVisibility(enabled) {
   toggleDebugPayload.textContent = enabled ? 'Hide Debug' : 'Debug';
 }
 
+function initializeDebugUi() {
+  if (!toggleDebugPayload || !debugPayloadSection) return;
+  if (IS_PRODUCTION) {
+    toggleDebugPayload.remove();
+    debugPayloadSection.remove();
+    return;
+  }
+
+  applyDebugPayloadVisibility(isDebugPayloadEnabled());
+  toggleDebugPayload.addEventListener('click', () => {
+    const next = !isDebugPayloadEnabled();
+    setDebugPayloadEnabled(next);
+    applyDebugPayloadVisibility(next);
+    if (next) {
+      refreshDebugPayloadFromStorage();
+    }
+  });
+}
+
 async function getStoredPayload() {
   const key = getPayloadStorageKey();
   const data = await chrome.storage.session.get(key);
@@ -193,7 +242,6 @@ function renderDebugPayload(payload) {
 function refreshDebugPayloadFromStorage() {
   return getStoredPayload()
     .then((payload) => {
-      lastPayload = payload;
       renderDebugPayload(payload);
     })
     .catch(() => {
@@ -271,6 +319,29 @@ function formatDateLabel(dateKey, options = false) {
   return `${monthNames[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
 }
 
+function formatCompactDateParts(dateKey, options = {}) {
+  const showTime = !!options.showTime;
+  if (dateKey === 'Unknown') {
+    return { primary: 'Unknown', secondary: '' };
+  }
+
+  const parsed = dateKey.includes('T') ? new Date(dateKey) : null;
+  if (parsed && !Number.isNaN(parsed.getTime())) {
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const primary = `${monthNames[parsed.getMonth()]} ${parsed.getDate()}`;
+    if (!showTime) return { primary, secondary: '' };
+    const hours = parsed.getHours();
+    const period = hours >= 12 ? 'PM' : 'AM';
+    const displayHour = hours % 12 || 12;
+    return { primary, secondary: `${displayHour} ${period}` };
+  }
+
+  return {
+    primary: formatDateLabel(dateKey, { short: true, showTime: false }),
+    secondary: ''
+  };
+}
+
 function getDayKey(dateKey) {
   if (!dateKey || dateKey === 'Unknown') return 'Unknown';
   if (dateKey.includes('T')) return dateKey.split('T')[0];
@@ -295,24 +366,29 @@ function formatCell(observations, refLow, refHigh) {
   return observations
     .map((obs) => {
       const parts = [];
+      let isLow = false;
+      let isHigh = false;
       if (obs.valueRaw) {
-        const value = parseNumber(obs.valueRaw);
+        const measurement = parseMeasurementValue(obs.valueRaw);
+        const value = measurement.plotValue;
         const low = parseNumber(refLow);
         const high = parseNumber(refHigh);
-        const isAbnormal = Number.isFinite(value)
-          && ((Number.isFinite(low) && value < low) || (Number.isFinite(high) && value > high));
-        const isLow = Number.isFinite(value) && Number.isFinite(low) && value < low;
-        const isHigh = Number.isFinite(value) && Number.isFinite(high) && value > high;
-        const valueText = escapeHtml(obs.valueRaw);
-        let rendered = isAbnormal ? `<strong>${valueText}</strong>` : valueText;
-        if (isLow) rendered += ' <span class="status status-sm status-info align-middle" aria-label="info"></span>';
-        else if (isHigh) rendered += ' <span class="status status-sm status-error align-middle" aria-label="error"></span>';
+        const rangeState = getMeasurementRangeState(measurement, low, high);
+        const isAbnormal = rangeState === 'low' || rangeState === 'high';
+        isLow = rangeState === 'low';
+        isHigh = rangeState === 'high';
+        const valueText = escapeHtml(formatDisplayValue(obs.valueRaw));
+        let rendered = isAbnormal ? `<span class="lab-flag-value">${valueText}</span>` : `<span class="lab-normal-value">${valueText}</span>`;
+        if (isLow) rendered += ' <span class="lab-flag lab-flag-low">L</span>';
+        else if (isHigh) rendered += ' <span class="lab-flag lab-flag-high">H</span>';
         parts.push(rendered);
       }
-      if (obs.qualifier) parts.push(`(${escapeHtml(obs.qualifier)})`);
+      const qualifierKey = normalizeKey(obs.qualifier);
+      const isRedundantQualifier = (isLow && qualifierKey === 'low') || (isHigh && qualifierKey === 'high');
+      if (obs.qualifier && !isRedundantQualifier) parts.push(`(${escapeHtml(obs.qualifier)})`);
       const result = parts.join(' ');
       if (!obs.comment) return result;
-      const comment = `<div class="text-xs text-gray-500 italic mt-1">${escapeHtml(obs.comment)}</div>`;
+      const comment = `<div class="lab-cell-comment">${escapeHtml(obs.comment)}</div>`;
       return result ? `${result}${comment}` : comment;
     })
     .join('; ');
@@ -322,6 +398,7 @@ function applyCellTruncation(cell, rawText, tooltipText = rawText) {
   if (!cell || !rawText) return;
   const text = String(tooltipText || cell.textContent || rawText).trim();
   if (text.length <= TRUNCATE_LENGTH) return;
+  const originalHtml = cell.innerHTML;
   const wrap = document.createElement('span');
   wrap.className = 'cell-truncate cell-modal';
   wrap.innerHTML = cell.innerHTML;
@@ -329,7 +406,7 @@ function applyCellTruncation(cell, rawText, tooltipText = rawText) {
   cell.appendChild(wrap);
   cell.classList.add('cursor-pointer');
   cell.title = `Click to view full result: ${tooltipText || 'details'}`;
-  cell.addEventListener('click', () => openResultModal(text));
+  cell.addEventListener('click', () => openResultModal(originalHtml));
 }
 
 function parseNumber(value) {
@@ -337,6 +414,56 @@ function parseNumber(value) {
   const cleaned = String(value).replace(/[^\d.+-]/g, '');
   if (!cleaned) return NaN;
   return Number(cleaned);
+}
+
+function parseMeasurementValue(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return { comparator: null, plotValue: NaN, raw };
+  const inequalityMatch = raw.match(/^(<=|>=|<|>)\s*([-+]?\d*\.?\d+)/);
+  if (inequalityMatch) {
+    return {
+      comparator: inequalityMatch[1],
+      plotValue: Number(inequalityMatch[2]),
+      raw
+    };
+  }
+  return {
+    comparator: null,
+    plotValue: parseNumber(raw),
+    raw
+  };
+}
+
+function formatDisplayValue(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return raw;
+  const match = raw.match(/^(\s*)(<=|>=|<|>)?\s*([-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)(\s*)$/);
+  if (!match) return raw;
+  const comparator = match[2] || '';
+  const numeric = Number(match[3].replace(/,/g, ''));
+  if (!Number.isFinite(numeric)) return raw;
+  const rendered = Number.isInteger(numeric) ? String(numeric) : String(numeric);
+  return `${comparator}${rendered}`;
+}
+
+function getMeasurementRangeState(measurement, low, high) {
+  const value = measurement?.plotValue;
+  if (!Number.isFinite(value)) return 'unknown';
+  const comparator = measurement?.comparator || null;
+  if (!comparator) {
+    if (Number.isFinite(low) && value < low) return 'low';
+    if (Number.isFinite(high) && value > high) return 'high';
+    return 'normal';
+  }
+  if ((comparator === '<' && Number.isFinite(low) && value <= low)
+    || (comparator === '<=' && Number.isFinite(low) && value < low)) {
+    return 'low';
+  }
+  if ((comparator === '>' && Number.isFinite(high) && value >= high)
+    || (comparator === '>=' && Number.isFinite(high) && value > high)) {
+    return 'high';
+  }
+  return 'normal';
 }
 
 function escapeHtml(value) {
@@ -351,7 +478,15 @@ function buildSparkline(values, refLow, refHigh) {
   const height = 24;
   const padding = 2;
   const points = values
-    .map((v, idx) => ({ x: idx, y: parseNumber(v) }))
+    .map((v, idx) => {
+      const measurement = parseMeasurementValue(v);
+      return {
+        x: idx,
+        y: measurement.plotValue,
+        comparator: measurement.comparator,
+        raw: measurement.raw
+      };
+    })
     .filter((p) => Number.isFinite(p.y));
   if (points.length < 2) return '';
 
@@ -377,6 +512,35 @@ function buildSparkline(values, refLow, refHigh) {
   const linePoints = points
     .map((p, i) => `${padding + i * xStep},${toY(p.y).toFixed(2)}`)
     .join(' ');
+  const markers = points
+    .map((p, i) => {
+      if (!p.comparator) return '';
+      const cx = padding + i * xStep;
+      const cy = toY(p.y);
+      const size = 4.4;
+      const x = cx - size / 2;
+      const y = cy - size / 2;
+      const label = `${escapeHtml(p.raw)} plotted at ${p.y}`;
+      return `
+        <rect
+          x="${x.toFixed(2)}"
+          y="${y.toFixed(2)}"
+          width="${size}"
+          height="${size}"
+          transform="rotate(45 ${cx.toFixed(2)} ${cy.toFixed(2)})"
+          fill="var(--color-base-100)"
+          stroke="currentColor"
+          stroke-width="1.2"
+        >
+          <title>${label}</title>
+        </rect>
+      `.trim();
+    })
+    .join('');
+  const lastPoint = points[points.length - 1];
+  const lastMarker = lastPoint?.comparator
+    ? ''
+    : `<circle cx="${padding + (points.length - 1) * xStep}" cy="${toY(lastPoint.y).toFixed(2)}" r="2.25" fill="currentColor" />`;
 
   let refBand = '';
   if (Number.isFinite(refLowNum) && Number.isFinite(refHighNum)) {
@@ -391,6 +555,8 @@ function buildSparkline(values, refLow, refHigh) {
     <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" aria-hidden="true">
       ${refBand}
       <polyline fill="none" stroke="currentColor" stroke-width="1.5" points="${linePoints}" />
+      ${markers}
+      ${lastMarker}
     </svg>
   `.trim();
 }
@@ -398,15 +564,6 @@ function buildSparkline(values, refLow, refHigh) {
 function getTestUnit(observations) {
   for (const obs of observations) {
     if (obs.unit) return obs.unit;
-  }
-  return '';
-}
-
-function getReferenceRange(observations) {
-  for (const obs of observations) {
-    const low = obs.lowestValue || '';
-    const high = obs.highestValue || '';
-    if (low || high) return `${low || ''}-${high || ''}`.replace(/^-|-$|^$/g, '');
   }
   return '';
 }
@@ -442,53 +599,170 @@ function getPreferredTestOrder(panelObs) {
   return best;
 }
 
-function renderTestFilterPanel(panelName) {
-  if (!testFilterPanel || !testFilterList) return;
-  const entries = panelTestEntriesByPanel.get(panelName) || [];
-  if (!entries.length) {
-    testFilterPanel.classList.add('hidden');
-    setFilterLayoutVisible(false);
-    return;
+function parseGroupedAnnotationTestName(testName) {
+  const text = String(testName || '').trim();
+  const patterns = [
+    /^((?:RBC|WBC)\s+Morphology)(?:\s*-\s*(.+))?$/i,
+    /^(Casts)(?:\s*-\s*(.+))?$/i,
+    /^(Crystals)(?:\s*-\s*(.+))?$/i
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (!match) continue;
+    return {
+      groupName: match[1].replace(/\s+/g, ' ').trim(),
+      detailName: String(match[2] || '').replace(/\s+/g, ' ').trim()
+    };
+  }
+  return null;
+}
+
+function hasRenderableGroupedAnnotationValue(obs) {
+  if (!obs) return false;
+  return Boolean(
+    String(obs.valueRaw || '').trim()
+    || String(obs.qualifier || '').trim()
+    || String(obs.comment || '').trim()
+  );
+}
+
+function buildGroupedAnnotationCell(observations) {
+  if (!observations || observations.length === 0) return '';
+  const entries = observations
+    .map((obs) => {
+      const annotation = parseGroupedAnnotationTestName(obs.testName);
+      if (!annotation || !hasRenderableGroupedAnnotationValue(obs)) return '';
+      const label = annotation.detailName || annotation.groupName;
+      const value = String(obs.valueRaw || '').trim();
+      const qualifier = String(obs.qualifier || '').trim();
+      const parts = [];
+      if (value) parts.push(`<span class="lab-morphology-value">${escapeHtml(value)}</span>`);
+      if (qualifier) parts.push(`<span class="lab-morphology-qualifier">(${escapeHtml(qualifier)})</span>`);
+      const body = parts.length ? `: ${parts.join(' ')}` : '';
+      const comment = obs.comment
+        ? `<div class="lab-cell-comment">${escapeHtml(obs.comment)}</div>`
+        : '';
+      return `<div class="lab-morphology-entry"><span class="lab-morphology-label">${escapeHtml(label)}</span>${body}${comment}</div>`;
+    })
+    .filter(Boolean);
+  return entries.join('');
+}
+
+function attachModifiedWheelHorizontalScroll(scroller) {
+  if (!scroller) return;
+  scroller.addEventListener('wheel', (event) => {
+    if (!event.shiftKey) return;
+    if (scroller.scrollWidth <= scroller.clientWidth) return;
+    const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+    if (!delta) return;
+    event.preventDefault();
+    scroller.scrollLeft += delta;
+  }, { passive: false });
+}
+
+function hasRenderablePlainObservation(obs) {
+  if (!obs) return false;
+  return Boolean(
+    String(obs.valueRaw || '').trim()
+    || String(obs.qualifier || '').trim()
+    || String(obs.comment || '').trim()
+  );
+}
+
+function hasRenderableRowContent(row, dates) {
+  if (!row || !dates?.length) return false;
+  return dates.some((dateKey) => {
+    const obsList = row.observationsByDate?.get(dateKey) || [];
+    if (row.groupedAnnotation) {
+      return obsList.some((obs) => hasRenderableGroupedAnnotationValue(obs));
+    }
+    return obsList.some((obs) => hasRenderablePlainObservation(obs));
+  });
+}
+
+function matchesFilterText(value, filterText) {
+  const needle = normalizeKey(filterText);
+  if (!needle) return true;
+  return normalizeKey(value).includes(needle);
+}
+
+function buildDisplayRows(panelName, testEntries, byTest, options = DEFAULT_PANEL_DISPLAY_OPTIONS) {
+  if (!options.groupAnnotations) {
+    return testEntries.map((entry) => ({
+      key: entry.key,
+      name: entry.name,
+      unit: entry.unit,
+      groupedAnnotation: false,
+      observationsByDate: byTest.get(entry.key)?.observationsByDate || new Map()
+    }));
   }
 
-  testFilterPanel.classList.remove('hidden');
-  setFilterLayoutVisible(true);
-  const filterState = getTestFilterStateForPanel(panelName, entries);
-  updatePanelFilterState(panelName, filterState);
+  const rows = [];
+  const groupedAnnotationRows = new Map();
 
-  if (testFilterPanelCount) {
-    testFilterPanelCount.textContent = `${filterState.size}/${entries.length}`;
-  }
+  testEntries.forEach((entry) => {
+    const info = byTest.get(entry.key);
+    const annotation = parseGroupedAnnotationTestName(entry.name);
+    const shouldGroup = annotation && (
+      panelName === 'CBC'
+      || (panelName === 'Urinalysis' && /^(casts|crystals)$/i.test(annotation.groupName))
+    );
+    if (shouldGroup) {
+      const groupKey = normalizeTestKey(annotation.groupName);
+      if (!groupedAnnotationRows.has(groupKey)) {
+        groupedAnnotationRows.set(groupKey, {
+          key: `grouped-annotation::${groupKey}`,
+          name: annotation.groupName,
+          unit: '',
+          groupedAnnotation: true,
+          children: []
+        });
+      }
+      groupedAnnotationRows.get(groupKey).children.push(entry.key);
+      return;
+    }
+    rows.push({
+      key: entry.key,
+      name: entry.name,
+      unit: entry.unit,
+      groupedAnnotation: false,
+      observationsByDate: info?.observationsByDate || new Map()
+    });
+  });
 
-  testFilterList.innerHTML = '';
-  const list = document.createElement('div');
-  entries.forEach((entry) => {
-    const row = document.createElement('label');
-    row.className = 'label cursor-pointer justify-start gap-2 px-0 py-1';
+  groupedAnnotationRows.forEach((group) => {
+    const hasData = group.children.some((childKey) => {
+      const childInfo = byTest.get(childKey);
+      if (!childInfo?.observationsByDate) return false;
+      for (const [, obsList] of childInfo.observationsByDate.entries()) {
+        if (obsList.some((obs) => hasRenderableGroupedAnnotationValue(obs))) return true;
+      }
+      return false;
+    });
+    if (!hasData) return;
 
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.className = 'checkbox checkbox-xs';
-    checkbox.checked = filterState.has(entry.key);
-    checkbox.addEventListener('change', () => {
-      const next = getTestFilterStateForPanel(panelName, entries);
-      if (checkbox.checked) next.add(entry.key);
-      else next.delete(entry.key);
-      updatePanelFilterState(panelName, next);
-      buildPanelTables(lastObservations);
-      setActivePanel(panelName);
+    const observationsByDate = new Map();
+    group.children.forEach((childKey) => {
+      const childInfo = byTest.get(childKey);
+      if (!childInfo?.observationsByDate) return;
+      childInfo.observationsByDate.forEach((obsList, dateKey) => {
+        const filtered = obsList.filter((obs) => hasRenderableGroupedAnnotationValue(obs));
+        if (!filtered.length) return;
+        if (!observationsByDate.has(dateKey)) observationsByDate.set(dateKey, []);
+        observationsByDate.get(dateKey).push(...filtered);
+      });
     });
 
-    const labelText = document.createElement('span');
-    labelText.className = 'label-text text-xs';
-    const unitLabel = entry.unit ? ` (${entry.unit})` : '';
-    labelText.textContent = `${entry.name}${unitLabel}`;
-
-    row.appendChild(checkbox);
-    row.appendChild(labelText);
-    list.appendChild(row);
+    rows.push({
+      key: group.key,
+      name: group.name,
+      unit: '',
+      groupedAnnotation: true,
+      observationsByDate
+    });
   });
-  testFilterList.appendChild(list);
+
+  return rows;
 }
 
 function buildPanelTables(observations) {
@@ -498,7 +772,6 @@ function buildPanelTables(observations) {
     panelsEl.innerHTML = '';
   }
   panelSections = new Map();
-  panelTestEntriesByPanel.clear();
   const panels = new Map();
   observations.forEach((obs) => {
     if (!obs.panel || !obs.testName) return;
@@ -509,10 +782,6 @@ function buildPanelTables(observations) {
 
   if (!panels.size) {
     statusEl.textContent = 'No panel data found.';
-    if (testFilterPanel) {
-      testFilterPanel.classList.add('hidden');
-    }
-    setFilterLayoutVisible(false);
     return;
   }
 
@@ -526,6 +795,9 @@ function buildPanelTables(observations) {
     return a[0].localeCompare(b[0]);
   });
   for (const [panelName, panelObs] of sortedPanels) {
+    const panelOptions = getPanelDisplayOptions(panelName);
+    const effectivePanelOptions = getEffectivePanelDisplayOptions(panelName);
+    const tableFilters = getTableFilters();
     const dateSet = new Set(panelObs.map((o) => asDateKey(o.collectedAt)));
     const dates = sortDateKeys(dateSet);
     const dayCounts = new Map();
@@ -586,17 +858,28 @@ function buildPanelTables(observations) {
       }
       return entries;
     })();
-    const filterState = getTestFilterStateForPanel(panelName, testEntries);
-    updatePanelFilterState(panelName, filterState);
-    panelTestEntriesByPanel.set(panelName, testEntries);
-    const visibleTestEntries = testEntries.filter((entry) => filterState.has(entry.key));
+    const displayRows = buildDisplayRows(panelName, testEntries, byTest, effectivePanelOptions);
+    const filteredRows = displayRows.filter((row) => matchesFilterText(row.name, tableFilters.testName));
+    const filteredDates = dates.filter((dateKey) => {
+      const sourceLabel = originalPanelByDate.get(dateKey) || panelName;
+      return matchesFilterText(sourceLabel, tableFilters.sourceLabel);
+    });
+    const visibleRows = effectivePanelOptions.hideBlankRows
+      ? filteredRows.filter((row) => hasRenderableRowContent(row, filteredDates))
+      : filteredRows;
+    const visibleDates = effectivePanelOptions.hideBlankColumns
+      ? filteredDates.filter((dateKey) => visibleRows.some((row) => {
+        const obsList = row.observationsByDate?.get(dateKey) || [];
+        if (row.groupedAnnotation) return obsList.some((obs) => hasRenderableGroupedAnnotationValue(obs));
+        return obsList.some((obs) => hasRenderablePlainObservation(obs));
+      }))
+      : filteredDates;
 
     const hasAnyRef = refDates.length > 0;
-    const hasTrendData = visibleTestEntries.some((entry) => {
-      const info = byTest.get(entry.key);
-      if (!info?.displayName || isTrendDisabled(panelName, info.displayName)) return false;
-      const byDate = info.observationsByDate;
-      const values = dates
+    const hasTrendData = visibleRows.some((entry) => {
+      if (entry.groupedAnnotation || isTrendDisabled(panelName, entry.name)) return false;
+      const byDate = entry.observationsByDate;
+      const values = visibleDates
         .map((d) => {
           const obsList = byDate.get(d) || [];
           return obsList.length ? obsList[0].valueRaw : null;
@@ -606,31 +889,131 @@ function buildPanelTables(observations) {
         .filter((n) => Number.isFinite(n));
       return values.length >= 2;
     });
-    const showTrendColumn = dates.length > 1
+    const showTrendColumn = visibleDates.length > 1
       && !isTrendDisabled(panelName, null)
       && hasTrendData;
 
     const section = document.createElement('section');
-    section.className = 'card bg-base-200 shadow-sm w-full';
+    section.className = 'lab-panel card bg-base-200 shadow-sm w-full border border-base-300';
 
     const header = document.createElement('div');
-    header.className = 'card-body';
-    header.innerHTML = `<h2 class="card-title text-lg">${panelName}</h2>`;
+    header.className = 'card-body gap-3 p-0';
+    const headerBar = document.createElement('div');
+    headerBar.className = 'lab-panel-header';
+    const titleWrap = document.createElement('div');
+    titleWrap.className = 'lab-panel-title-wrap';
+    titleWrap.innerHTML = `
+      <h2 class="card-title lab-panel-title text-base md:text-lg">${panelName}</h2>
+    `;
+    headerBar.appendChild(titleWrap);
+
+    const controlsWrap = document.createElement('div');
+    controlsWrap.className = 'lab-panel-controls';
+
+    const filtersWrap = document.createElement('div');
+    filtersWrap.className = 'lab-panel-filters';
+    [
+      ['testName', 'Filter by test name (rows)'],
+      ['sourceLabel', 'Filter by source name (cols)']
+    ].forEach(([key, placeholder]) => {
+      const input = document.createElement('input');
+      input.type = 'search';
+      input.className = 'input input-xs input-bordered lab-panel-filter-input';
+      input.placeholder = placeholder;
+      input.value = tableFilters[key] || '';
+      input.dataset.filterKey = key;
+      input.dataset.panelName = panelName;
+      input.setAttribute('aria-label', placeholder);
+      input.addEventListener('input', (e) => {
+        captureFilterFocusState(e.target, key);
+        updateTableFilters({ [key]: e.target.value });
+        buildPanelTables(lastObservations);
+        setActivePanel(panelName);
+      });
+      if (key === 'sourceLabel') {
+        input.addEventListener('focus', () => {
+          if (panelOptions.showDateSourceLabels) return;
+          if (sourceLabelPreviewPanel === panelName) return;
+          captureFilterFocusState(input, key);
+          sourceLabelPreviewPanel = panelName;
+          buildPanelTables(lastObservations);
+          setActivePanel(panelName);
+        });
+        input.addEventListener('blur', () => {
+          window.setTimeout(() => {
+            if (panelOptions.showDateSourceLabels) return;
+            const activeEl = document.activeElement;
+            if (
+              activeEl?.dataset?.filterKey === 'sourceLabel'
+              && activeEl?.dataset?.panelName === panelName
+            ) {
+              return;
+            }
+            if (sourceLabelPreviewPanel !== panelName) return;
+            sourceLabelPreviewPanel = null;
+            buildPanelTables(lastObservations);
+            setActivePanel(panelName);
+          }, 0);
+        });
+      }
+      filtersWrap.appendChild(input);
+    });
+    controlsWrap.appendChild(filtersWrap);
+
+    const optionsDetails = document.createElement('details');
+    optionsDetails.className = 'dropdown dropdown-end';
+    const summary = document.createElement('summary');
+    summary.className = 'btn btn-xs btn-outline';
+    summary.textContent = 'Table options';
+    optionsDetails.appendChild(summary);
+
+    const menu = document.createElement('div');
+    menu.className = 'lab-panel-options-menu';
+    [
+      ['groupAnnotations', 'Group Morphology / Casts / Crystals'],
+      ['hideBlankRows', 'Hide blank rows'],
+      ['hideBlankColumns', 'Hide blank columns'],
+      ['showDateSourceLabels', 'Show source label above date']
+    ].forEach(([key, label]) => {
+      const row = document.createElement('label');
+      row.className = 'lab-panel-option-row';
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.className = 'checkbox checkbox-xs';
+      checkbox.checked = !!panelOptions[key];
+      checkbox.addEventListener('change', () => {
+        updatePanelDisplayOptions(panelName, { [key]: checkbox.checked });
+        buildPanelTables(lastObservations);
+        setActivePanel(panelName);
+      });
+      const text = document.createElement('span');
+      text.className = 'text-xs';
+      text.textContent = label;
+      row.appendChild(checkbox);
+      row.appendChild(text);
+      menu.appendChild(row);
+    });
+    optionsDetails.appendChild(menu);
+    controlsWrap.appendChild(optionsDetails);
+    headerBar.appendChild(controlsWrap);
+    header.appendChild(headerBar);
 
     const tableWrap = document.createElement('div');
-    tableWrap.className = 'overflow-x-auto max-w-full';
+    tableWrap.className = 'lab-table-wrap overflow-x-auto max-w-full';
+    attachModifiedWheelHorizontalScroll(tableWrap);
 
     const table = document.createElement('table');
-    table.className = 'table table-xs table-pin-rows table-zebra w-full text-sm bg-base-100 border border-base-300 border-separate border-spacing-0 rounded-none';
+    table.className = 'lab-table table table-xs table-pin-rows bg-base-100 border border-base-300 border-separate border-spacing-0 rounded-none';
 
     const thead = document.createElement('thead');
     const headRow = document.createElement('tr');
     const testTh = document.createElement('th');
-    testTh.className = 'w-44 sticky-col sticky-col-header';
+    testTh.className = 'w-48 sticky-col sticky-col-header lab-test-header-cell';
     const testHeader = document.createElement('div');
-    testHeader.textContent = 'Test';
+    testHeader.className = 'lab-col-title';
+    testHeader.innerHTML = 'Test <span class="lab-col-hint">Hold Shift + wheel to scroll horizontally</span>';
     const refRow = document.createElement('div');
-    refRow.className = 'text-[11px] text-gray-400 flex items-center gap-1';
+    refRow.className = 'lab-ref-row';
     const refLabel = document.createElement('span');
     refLabel.textContent = 'Ref range';
     refLabel.className = 'underline underline-offset-2 decoration-dotted decoration-1 text-gray-400 cursor-help';
@@ -657,38 +1040,38 @@ function buildPanelTables(observations) {
     testTh.appendChild(refRow);
     headRow.appendChild(testTh);
 
-    dates.forEach((d) => {
+    visibleDates.forEach((d) => {
       const th = document.createElement('th');
-      th.className = 'w-24';
+      th.className = 'lab-date-header-cell';
       const span = document.createElement('span');
-      span.className = 'cursor-help underline underline-offset-2 decoration-dotted decoration-1 text-gray-500';
+      span.className = 'lab-date-chip cursor-help';
       const tip = originalPanelByDate.get(d) || panelName;
       span.title = tip;
       const dayKey = getDayKey(d);
       const showTime = (dayCounts.get(dayKey) || 0) > 1;
-      if (showTime && d.includes('T')) {
-        const parsed = new Date(d);
-        if (!Number.isNaN(parsed.getTime())) {
-          const hours = parsed.getHours();
-          const period = hours >= 12 ? 'PM' : 'AM';
-          const displayHour = hours % 12 || 12;
-          span.textContent = formatDateLabel(d, { showTime: false });
-          const timeSpan = document.createElement('span');
-          timeSpan.className = 'text-[11px] text-gray-400';
-          timeSpan.textContent = ` (${displayHour} ${period})`;
-          span.appendChild(timeSpan);
-        } else {
-          span.textContent = formatDateLabel(d, { showTime, showMinutes: false });
-        }
-      } else {
-        span.textContent = formatDateLabel(d, { showTime, showMinutes: false });
+      if (effectivePanelOptions.showDateSourceLabels) {
+        const source = document.createElement('span');
+        source.className = 'lab-date-chip-source';
+        source.textContent = tip;
+        span.appendChild(source);
+      }
+      const dateParts = formatCompactDateParts(d, { showTime });
+      const primary = document.createElement('span');
+      primary.className = 'lab-date-chip-primary';
+      primary.textContent = dateParts.primary;
+      span.appendChild(primary);
+      if (dateParts.secondary) {
+        const secondary = document.createElement('span');
+        secondary.className = 'lab-date-chip-secondary';
+        secondary.textContent = dateParts.secondary;
+        span.appendChild(secondary);
       }
       th.appendChild(span);
       headRow.appendChild(th);
     });
     if (showTrendColumn) {
       const trendTh = document.createElement('th');
-      trendTh.className = 'w-28';
+      trendTh.className = 'w-28 lab-trend-header-cell';
       trendTh.textContent = 'Trendline';
       headRow.appendChild(trendTh);
     }
@@ -696,33 +1079,36 @@ function buildPanelTables(observations) {
     table.appendChild(thead);
 
     const tbody = document.createElement('tbody');
-    visibleTestEntries.forEach((entry) => {
+    visibleRows.forEach((entry) => {
       const testName = entry.name;
       const testKey = entry.key;
-      const testInfo = byTest.get(testKey);
-      const byDate = testInfo?.observationsByDate || new Map();
+      const byDate = entry.observationsByDate || new Map();
       const row = document.createElement('tr');
+      row.className = 'lab-row';
       const nameTd = document.createElement('td');
-      nameTd.className = 'w-44 max-w-44 break-words sticky-col';
-      const testObs = dates.flatMap((d) => byDate.get(d) || []);
+      nameTd.className = 'w-48 max-w-48 break-words sticky-col lab-test-cell';
+      const testObs = visibleDates.flatMap((d) => byDate.get(d) || []);
       const unit = normalizeUnit(getTestUnit(testObs));
       const displayName = `<span class="font-medium text-base-content">${testName}</span>`;
-      const ref = getReferenceForTestDate(panelObs, testKey, selectedRefDate);
+      const ref = entry.groupedAnnotation ? { low: null, high: null } : getReferenceForTestDate(panelObs, testKey, selectedRefDate);
       const range = formatRangeText(ref);
       const metaParts = [];
       if (range) metaParts.push(range);
-      else if (hasAnyRef) metaParts.push('<span class="text-[11px] text-gray-400 italic">no ref</span>');
-      if (unit) metaParts.push(`<span class="text-[11px] text-gray-400">(${escapeHtml(unit)})</span>`);
+      else if (hasAnyRef && !entry.groupedAnnotation) metaParts.push('<span class="text-[11px] text-gray-400 italic">no ref</span>');
+      if (unit && !entry.groupedAnnotation) metaParts.push(`<span class="text-[11px] text-gray-400">(${escapeHtml(unit)})</span>`);
       const meta = metaParts.length
-        ? `<div class="text-[12px] text-gray-500">${metaParts.join(' ')}</div>`
+        ? `<div class="lab-test-meta">${metaParts.join(' ')}</div>`
         : '';
       nameTd.innerHTML = `${displayName}${meta}`;
       row.appendChild(nameTd);
 
-      dates.forEach((d) => {
+      visibleDates.forEach((d) => {
         const td = document.createElement('td');
+        td.className = 'lab-value-cell';
         const obsList = byDate.get(d) || [];
-        const cellText = formatCell(obsList, ref?.low, ref?.high);
+        const cellText = entry.groupedAnnotation
+          ? buildGroupedAnnotationCell(obsList)
+          : formatCell(obsList, ref?.low, ref?.high);
         td.innerHTML = cellText;
         applyCellTruncation(td, cellText);
         row.appendChild(td);
@@ -730,9 +1116,9 @@ function buildPanelTables(observations) {
 
       if (showTrendColumn) {
         const trendTd = document.createElement('td');
-        trendTd.className = 'text-slate-500';
-        if (!isTrendDisabled(panelName, testName)) {
-          const series = dates.map((d) => {
+        trendTd.className = 'lab-trend-cell text-slate-500';
+        if (!entry.groupedAnnotation && !isTrendDisabled(panelName, testName)) {
+          const series = visibleDates.map((d) => {
             const obsList = byDate.get(d) || [];
             return obsList.length ? obsList[0].valueRaw : null;
           });
@@ -742,12 +1128,12 @@ function buildPanelTables(observations) {
       }
       tbody.appendChild(row);
     });
-    if (!visibleTestEntries.length) {
+    if (!visibleRows.length) {
       const emptyRow = document.createElement('tr');
       const emptyTd = document.createElement('td');
       emptyTd.className = 'text-gray-500 text-sm italic';
-      emptyTd.colSpan = Math.max(2, dates.length + 1);
-      emptyTd.textContent = 'No tests selected. Use the filter panel on the left.';
+      emptyTd.colSpan = Math.max(2, visibleDates.length + 1 + (showTrendColumn ? 1 : 0));
+      emptyTd.textContent = 'No tests available for this panel with the current display options.';
       emptyRow.appendChild(emptyTd);
       tbody.appendChild(emptyRow);
     }
@@ -764,19 +1150,15 @@ function buildPanelTables(observations) {
     ? activePanel
     : (sortedPanels.length ? sortedPanels[0][0] : null);
   setActivePanel(initial);
+  restorePendingFilterFocus(panelSections.get(activePanel) || document);
 }
 
 async function loadFromSession() {
   const payload = await getStoredPayload();
-  lastPayload = payload;
   if (!payload || !payload.observations) {
     statusEl.textContent = '(No data found. Extract from the side panel first.)';
     panelsEl.innerHTML = '';
     if (patientEl) patientEl.textContent = '';
-    panelTestEntriesByPanel.clear();
-    panelTestFilterByPanel.clear();
-    if (testFilterPanel) testFilterPanel.classList.add('hidden');
-    setFilterLayoutVisible(false);
     renderDebugPayload(payload);
     return;
   }
@@ -804,7 +1186,6 @@ function setActivePanel(panelName) {
     }
   }
   updatePanelButtons();
-  renderTestFilterPanel(panelName);
 }
 
 function updatePanelButtons() {
@@ -837,37 +1218,7 @@ Object.entries(panelButtons).forEach(([name, btn]) => {
   btn.addEventListener('click', () => setActivePanel(name));
 });
 
-if (selectAllTestsBtn) {
-  selectAllTestsBtn.addEventListener('click', () => {
-    if (!activePanel) return;
-    const entries = panelTestEntriesByPanel.get(activePanel) || [];
-    const allKeys = entries.map((entry) => entry.key);
-    updatePanelFilterState(activePanel, allKeys);
-    buildPanelTables(lastObservations);
-    setActivePanel(activePanel);
-  });
-}
-
-if (clearAllTestsBtn) {
-  clearAllTestsBtn.addEventListener('click', () => {
-    if (!activePanel) return;
-    updatePanelFilterState(activePanel, []);
-    buildPanelTables(lastObservations);
-    setActivePanel(activePanel);
-  });
-}
-
-if (toggleDebugPayload) {
-  applyDebugPayloadVisibility(isDebugPayloadEnabled());
-  toggleDebugPayload.addEventListener('click', () => {
-    const next = !isDebugPayloadEnabled();
-    setDebugPayloadEnabled(next);
-    applyDebugPayloadVisibility(next);
-    if (next) {
-      refreshDebugPayloadFromStorage();
-    }
-  });
-}
+initializeDebugUi();
 
 if (refreshDebugPayload) {
   refreshDebugPayload.addEventListener('click', () => {
@@ -884,9 +1235,10 @@ if (copyDebugPayload) {
 document.addEventListener('keydown', (e) => {
   if (!activePanel || !panelOrder.length) return;
   if (e.target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
-  if (!['ArrowLeft', 'ArrowRight'].includes(e.key)) return;
+  if (!e.altKey || !['ArrowLeft', 'ArrowRight'].includes(e.key)) return;
   const available = panelOrder.filter((p) => panelSections.has(p));
   if (!available.length) return;
+  e.preventDefault();
   const idx = Math.max(0, available.indexOf(activePanel));
   const nextIdx = e.key === 'ArrowLeft' ? Math.max(0, idx - 1) : Math.min(available.length - 1, idx + 1);
   setActivePanel(available[nextIdx]);

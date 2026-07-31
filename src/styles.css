@@ -17,6 +17,323 @@ body {
   color: #111
 }
 
+.lab-trends-page {
+  background:
+    linear-gradient(180deg, color-mix(in oklab, var(--color-base-200) 55%, white 45%) 0, var(--color-base-100) 180px);
+}
+
+.lab-trends-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 0.75rem 1rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--color-base-300);
+  background: color-mix(in oklab, var(--color-base-100) 92%, white 8%);
+}
+
+.lab-trends-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.lab-trends-title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+
+.lab-trends-patient {
+  color: color-mix(in oklab, var(--color-base-content) 62%, transparent);
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
+.lab-trends-panel-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.lab-trends-status {
+  margin-top: 0.2rem;
+  font-size: 0.74rem;
+  color: color-mix(in oklab, var(--color-base-content) 48%, transparent);
+}
+
+.lab-trends-shortcuts {
+  margin-top: 0.25rem;
+  font-size: 0.68rem;
+  color: color-mix(in oklab, var(--color-base-content) 48%, transparent);
+}
+
+.lab-panel {
+  overflow: hidden;
+}
+
+.lab-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 0.8rem 0.95rem 0;
+}
+
+.lab-panel-title-wrap {
+  display: flex;
+  align-items: center;
+}
+
+.lab-panel-title {
+  margin: 0;
+  line-height: 1;
+}
+
+.lab-panel-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.lab-panel-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.4rem;
+}
+
+.lab-panel-filter-input {
+  width: 11.25rem;
+}
+
+.lab-panel-options-menu {
+  position: absolute;
+  right: 0;
+  z-index: 20;
+  width: 15rem;
+  margin-top: 0.35rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--color-base-300);
+  background: color-mix(in oklab, var(--color-base-100) 96%, white 4%);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
+}
+
+.lab-panel-option-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.lab-panel-option-row + .lab-panel-option-row {
+  margin-top: 0.45rem;
+}
+
+.lab-table-wrap {
+  padding: 0.6rem 0 0;
+}
+
+.lab-table {
+  width: max-content;
+  table-layout: auto;
+}
+
+.lab-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  padding: 0.45rem 0.55rem;
+  background: color-mix(in oklab, var(--color-base-200) 88%, white 12%);
+  border-bottom: 1px solid var(--color-base-300);
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+.lab-table tbody td {
+  padding: 0.42rem 0.55rem;
+  border-bottom: 1px solid color-mix(in oklab, var(--color-base-300) 72%, transparent);
+  vertical-align: top;
+  font-size: 0.8rem;
+  line-height: 1.25;
+}
+
+.lab-table tbody tr:nth-child(even) td {
+  background: color-mix(in oklab, var(--color-base-100) 82%, var(--color-base-200) 18%);
+}
+
+.lab-table tbody tr:hover td {
+  background: color-mix(in oklab, var(--color-info) 10%, var(--color-base-100) 90%);
+}
+
+.lab-col-title {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: color-mix(in oklab, var(--color-base-content) 62%, transparent);
+}
+
+.lab-col-hint {
+  font-size: 0.56rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: color-mix(in oklab, var(--color-base-content) 46%, transparent);
+}
+
+.lab-ref-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.15rem;
+  font-size: 0.68rem;
+  color: color-mix(in oklab, var(--color-base-content) 48%, transparent);
+}
+
+.lab-date-header-cell,
+.lab-trend-header-cell {
+  text-align: center;
+}
+
+.lab-date-header-cell {
+  width: 4.75rem;
+  min-width: 4.75rem;
+}
+
+.lab-date-chip {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 4.3rem;
+  min-height: 2rem;
+  padding: 0.22rem 0.35rem;
+  border: 1px solid color-mix(in oklab, var(--color-base-300) 75%, white 25%);
+  background: color-mix(in oklab, var(--color-base-100) 78%, white 22%);
+  color: color-mix(in oklab, var(--color-base-content) 82%, transparent);
+  line-height: 1.05;
+  text-align: center;
+}
+
+.lab-date-chip-source {
+  max-width: 4.6rem;
+  margin-bottom: 0.12rem;
+  font-size: 0.56rem;
+  font-weight: 600;
+  line-height: 1.05;
+  color: color-mix(in oklab, var(--color-base-content) 50%, transparent);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.lab-date-chip-primary {
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.lab-date-chip-secondary {
+  margin-top: 0.08rem;
+  font-size: 0.62rem;
+  color: color-mix(in oklab, var(--color-base-content) 54%, transparent);
+}
+
+.lab-test-cell,
+.lab-test-header-cell {
+  box-shadow: 1px 0 0 color-mix(in oklab, var(--color-base-300) 78%, transparent);
+}
+
+.lab-test-cell {
+  background: color-mix(in oklab, var(--color-base-100) 95%, white 5%);
+}
+
+.lab-test-meta {
+  margin-top: 0.12rem;
+  font-size: 0.68rem;
+  line-height: 1.2;
+  color: color-mix(in oklab, var(--color-base-content) 50%, transparent);
+}
+
+.lab-value-cell {
+  min-width: 4.75rem;
+  width: 4.75rem;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.lab-trend-cell {
+  min-width: 6rem;
+  text-align: center;
+}
+
+.lab-normal-value {
+  font-weight: 500;
+}
+
+.lab-flag-value {
+  font-weight: 700;
+  color: color-mix(in oklab, var(--color-error) 76%, var(--color-base-content) 24%);
+}
+
+.lab-flag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.05rem;
+  height: 1.05rem;
+  margin-left: 0.3rem;
+  padding: 0 0.22rem;
+  border-radius: 999px;
+  font-size: 0.62rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.lab-flag-low {
+  background: color-mix(in oklab, var(--color-info) 22%, white 78%);
+  color: color-mix(in oklab, var(--color-info) 74%, black 26%);
+}
+
+.lab-flag-high {
+  background: color-mix(in oklab, var(--color-error) 18%, white 82%);
+  color: color-mix(in oklab, var(--color-error) 74%, black 26%);
+}
+
+.lab-cell-comment {
+  margin-top: 0.18rem;
+  font-size: 0.68rem;
+  line-height: 1.2;
+  color: color-mix(in oklab, var(--color-base-content) 46%, transparent);
+  font-style: italic;
+}
+
+.lab-morphology-entry + .lab-morphology-entry {
+  margin-top: 0.18rem;
+}
+
+.lab-morphology-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: color-mix(in oklab, var(--color-base-content) 72%, transparent);
+}
+
+.lab-morphology-value {
+  font-weight: 600;
+}
+
+.lab-morphology-qualifier {
+  font-size: 0.68rem;
+  color: color-mix(in oklab, var(--color-base-content) 54%, transparent);
+}
+
 /* Side panel sizing and layout */
 .sidepanel {
   margin: 0;
@@ -121,5 +438,39 @@ button {
   .sidepanel {
     width: calc(100vw - 24px);
     min-width: 240px;
+  }
+}
+
+@media (max-width: 720px) {
+  .lab-panel-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .lab-panel-controls {
+    width: 100%;
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .lab-panel-filters {
+    justify-content: flex-start;
+  }
+
+  .lab-panel-filter-input {
+    width: 100%;
+  }
+
+  .lab-trends-header {
+    padding: 0.8rem;
+  }
+
+  .lab-table thead th,
+  .lab-table tbody td {
+    padding: 0.38rem 0.45rem;
+  }
+
+  .lab-value-cell {
+    min-width: 4.9rem;
   }
 }

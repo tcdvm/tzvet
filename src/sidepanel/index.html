@@ -8,7 +8,8 @@
   <link rel="stylesheet" href="../styles.css">
 </head>
 
-<body class="sidepanel p-4 font-sans bg-base-100 text-base-content flex flex-col" data-theme="bumblebee">
+<body class="sidepanel p-4 font-sans bg-base-100 text-base-content flex flex-col" data-theme="bumblebee" style="padding-bottom: 12px">
+  <!-- padding-bottom override: reclaims the space reserved for the tab bar footer, remove alongside it when restored -->
   <main class="flex-1 space-y-4">
     <div id="tabTools" class="space-y-4">
       <div>
@@ -80,12 +81,15 @@
   </main>
 
 
+  <!-- Tools / How-tos tab bar temporarily removed (unused) -->
+  <!--
   <footer class="sidepanel-footer mt-3 pt-3">
     <div role=" tablist" class="tabs tabs-box mt-3">
       <button role="tab" class="tab tab-active" data-tab="tools">Tools</button>
       <button role="tab" class="tab" data-tab="howtos">How-tos</button>
     </div>
   </footer>
+  -->
 
   <script type="module" src="/sidepanel/sidepanel.js"></script>
 </body>
